@@ -1,0 +1,19 @@
+{
+  "name": "melo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "lint-staged": "lint-staged",
+    "format:rs": "cargo fmt --all",
+    "format:rs:check": "cargo fmt --all --check",
+    "lint:rs": "cargo clippy --all-targets --all-features -- -D warnings",
+    "precommit:rs": "pnpm format:rs:check && pnpm lint:rs",
+    "prepare": "husky"
+  },
+  "packageManager": "pnpm@10.26.1",
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "rumdl": "^0.1.67"
+  }
+}
