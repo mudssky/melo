@@ -7,11 +7,12 @@
     "format:rs": "cargo fmt --all",
     "format:rs:check": "cargo fmt --all --check",
     "lint:rs": "cargo clippy --all-targets --all-features -- -D warnings",
+    "lint:rs:rtk": "rtk cargo clippy --all-targets --all-features -- -D warnings",
     "precommit:rs": "pnpm format:rs:check && pnpm lint:rs",
     "prepare": "husky",
     "test:rs": "cargo test -q",
     "test:rs:rtk": "rtk cargo test -q",
-    "qa:rs": "pnpm format:rs && pnpm lint:rs && pnpm test:rs:rtk",
+    "qa:rs": "pnpm format:rs && pnpm lint:rs:rtk && pnpm test:rs:rtk",
     "qa": "pnpm qa:rs"
   },
   "packageManager": "pnpm@10.26.1",
