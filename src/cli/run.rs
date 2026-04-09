@@ -35,6 +35,23 @@ pub async fn run() -> MeloResult<()> {
             let settings = crate::core::config::settings::Settings::load()?;
             println!("{}", settings.database.path);
         }
+        Some(Command::Db {
+            command: DbCommand::Vacuum,
+        }) => {
+            let settings = crate::core::config::settings::Settings::load()?;
+            crate::core::db::maintenance::vacuum(settings.database.path.as_std_path())?;
+        }
+        Some(Command::Db {
+            command: DbCommand::Backup { dest },
+        }) => {
+            let settings = crate::core::config::settings::Settings::load()?;
+            let dest = dest.unwrap_or_else(|| format!("{}.backup", settings.database.path));
+            crate::core::db::maintenance::backup(
+                settings.database.path.as_std_path(),
+                std::path::Path::new(&dest),
+            )?;
+            println!("{dest}");
+        }
         _ => {}
     }
 
