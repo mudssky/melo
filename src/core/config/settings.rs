@@ -29,11 +29,55 @@ pub struct PlaylistSettings {
     pub smart: BTreeMap<String, SmartPlaylistDefinition>,
 }
 
+/// organize 规则匹配条件。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct OrganizeMatchSettings {
+    /// 静态歌单名。
+    pub static_playlist: Option<String>,
+}
+
+/// organize 单条规则。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct OrganizeRuleSettings {
+    /// 规则名称。
+    pub name: String,
+    /// 优先级。
+    pub priority: i32,
+    /// 匹配条件。
+    #[serde(rename = "match", default)]
+    pub match_rule: OrganizeMatchSettings,
+    /// 路径模板。
+    pub template: String,
+}
+
+/// organize 配置。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct OrganizeSettings {
+    /// 文件组织根目录。
+    pub base_dir: Option<String>,
+    /// 冲突策略。
+    pub conflict_policy: Option<String>,
+    /// 规则列表。
+    #[serde(default)]
+    pub rules: Vec<OrganizeRuleSettings>,
+}
+
+/// 媒体库配置。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct LibrarySettings {
+    /// 文件组织配置。
+    #[serde(default)]
+    pub organize: OrganizeSettings,
+}
+
 /// Melo 的全局配置。
 #[derive(Debug, Clone, Deserialize)]
 pub struct Settings {
     /// 数据库配置。
     pub database: DatabaseSettings,
+    /// 媒体库配置。
+    #[serde(default)]
+    pub library: LibrarySettings,
     /// 播放列表配置。
     #[serde(default)]
     pub playlists: PlaylistSettings,
@@ -45,6 +89,7 @@ impl Default for Settings {
             database: DatabaseSettings {
                 path: Utf8PathBuf::from("local/melo.db"),
             },
+            library: LibrarySettings::default(),
             playlists: PlaylistSettings::default(),
         }
     }
@@ -84,6 +129,7 @@ impl Settings {
             database: DatabaseSettings {
                 path: Utf8PathBuf::from_path_buf(path).expect("测试数据库路径必须是 UTF-8"),
             },
+            library: LibrarySettings::default(),
             playlists: PlaylistSettings::default(),
         }
     }

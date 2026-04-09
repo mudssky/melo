@@ -39,6 +39,11 @@ impl TestHarness {
     /// - 无
     pub async fn write_config(&self, contents: &str) {
         let config_path = self.root.path().join("config.toml");
+        let organize_base_dir = self.root.path().to_string_lossy().replace('\\', "/");
+        let contents = contents.replace(
+            r#"base_dir = "D:/Library""#,
+            &format!(r#"base_dir = "{organize_base_dir}""#),
+        );
         let full_contents = format!(
             "[database]\npath = {:?}\n\n{}",
             self.settings.database.path.as_str(),
@@ -68,11 +73,8 @@ impl TestHarness {
     ///
     /// # 返回
     /// - `LibraryService`：测试用媒体库服务
-    pub fn library_service(
-        &self,
-        reader: std::sync::Arc<dyn crate::domain::library::metadata::MetadataReader>,
-    ) -> LibraryService {
-        LibraryService::new(self.settings.clone(), reader)
+    pub fn library_service(&self) -> LibraryService {
+        LibraryService::for_test(self.settings.clone())
     }
 
     /// 向测试数据库直接插入一首歌曲。
@@ -109,5 +111,98 @@ impl TestHarness {
             rusqlite::params![format!("D:/Music/{title}.flac"), title, artist_id, album_id],
         )
         .expect("必须能插入 song");
+    }
+
+    /// 在临时目录写入模拟音频文件。
+    ///
+    /// # 参数
+    /// - `relative`：相对临时目录的路径
+    ///
+    /// # 返回
+    /// - `PathBuf`：实际写入路径
+    pub async fn write_song_file(&self, relative: &str) -> std::path::PathBuf {
+        let path = self.root.path().join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("必须能创建父目录");
+        }
+        std::fs::write(&path, b"fake-audio").expect("必须能写入模拟音频");
+        path
+    }
+
+    /// 在临时目录写入任意文件。
+    ///
+    /// # 参数
+    /// - `relative`：相对路径
+    /// - `contents`：文件内容
+    ///
+    /// # 返回
+    /// - 无
+    pub async fn write_file(&self, relative: &str, contents: impl AsRef<[u8]>) {
+        let path = self.root.path().join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("必须能创建父目录");
+        }
+        std::fs::write(path, contents).expect("必须能写入文件");
+    }
+
+    /// 判断临时目录下的相对路径是否存在。
+    ///
+    /// # 参数
+    /// - `relative`：相对路径
+    ///
+    /// # 返回
+    /// - `bool`：是否存在
+    pub async fn file_exists(&self, relative: &str) -> bool {
+        self.root.path().join(relative).exists()
+    }
+
+    /// 插入一首已经关联歌词 sidecar 和静态歌单的歌曲。
+    ///
+    /// # 参数
+    /// - `title`：标题
+    /// - `artist`：艺术家
+    /// - `playlist`：静态歌单名
+    /// - `path`：真实文件路径
+    ///
+    /// # 返回
+    /// - 无
+    pub async fn seed_scanned_song_with_sidecar(
+        &self,
+        title: &str,
+        artist: &str,
+        playlist: &str,
+        path: &std::path::Path,
+    ) {
+        self.seed_song(title, artist, title, 0).await;
+        let conn =
+            crate::core::db::connection::connect(&self.settings).expect("必须能连接测试数据库");
+
+        let song_id: i64 = conn
+            .query_row("SELECT id FROM songs ORDER BY id DESC LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .expect("必须能读取 song id");
+        conn.execute(
+            "UPDATE songs SET path = ?1, lyrics_source_kind = 'sidecar', lyrics_source_path = ?2, lyrics = 'fly high' WHERE id = ?3",
+            rusqlite::params![
+                path.to_string_lossy().to_string(),
+                path.with_extension("lrc").to_string_lossy().to_string(),
+                song_id
+            ],
+        )
+        .expect("必须能更新 song 路径");
+
+        conn.execute(
+            "INSERT INTO playlists (name, description, created_at, updated_at) VALUES (?1, NULL, datetime('now'), datetime('now'))",
+            [playlist],
+        )
+        .expect("必须能插入静态歌单");
+        let playlist_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO playlist_entries (playlist_id, song_id, position, added_at) VALUES (?1, ?2, 0, datetime('now'))",
+            rusqlite::params![playlist_id, song_id],
+        )
+        .expect("必须能关联歌单成员");
     }
 }

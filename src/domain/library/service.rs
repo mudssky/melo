@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use crate::core::config::settings::Settings;
-use crate::core::error::MeloResult;
-use crate::domain::library::metadata::{LyricsSourceKind, MetadataReader};
+use crate::core::error::{MeloError, MeloResult};
+use crate::domain::library::metadata::{LyricsSourceKind, MetadataReader, NullMetadataReader};
+use crate::domain::library::organize::OrganizePreviewRow;
 use crate::domain::library::repository::{ArtworkRefRecord, LibraryRepository, SongRecord};
 
 /// 媒体库服务，负责目录扫描与数据查询。
@@ -28,6 +29,17 @@ impl LibraryService {
             reader,
             repository,
         }
+    }
+
+    /// 构造一个仅用于测试的服务。
+    ///
+    /// # 参数
+    /// - `settings`：全局配置
+    ///
+    /// # 返回
+    /// - `Self`：测试用服务
+    pub fn for_test(settings: Settings) -> Self {
+        Self::new(settings, Arc::new(NullMetadataReader))
     }
 
     /// 扫描给定目录列表并写入数据库。
@@ -100,5 +112,77 @@ impl LibraryService {
     /// - `MeloResult<Option<ArtworkRefRecord>>`：封面引用记录
     pub async fn artwork_for_song(&self, song_id: i64) -> MeloResult<Option<ArtworkRefRecord>> {
         self.repository.artwork_for_song(song_id).await
+    }
+
+    /// 预览 organize 结果。
+    ///
+    /// # 参数
+    /// - `song_id`：可选歌曲 ID 过滤
+    ///
+    /// # 返回
+    /// - `MeloResult<Vec<OrganizePreviewRow>>`：预览结果
+    pub async fn preview_organize(
+        &self,
+        song_id: Option<i64>,
+    ) -> MeloResult<Vec<OrganizePreviewRow>> {
+        let settings = Settings::load().unwrap_or_else(|_| self.settings.clone());
+        let candidates = self.repository.organize_candidates(song_id).await?;
+        let mut rows = Vec::new();
+
+        for candidate in candidates {
+            let Some(rule) = crate::domain::library::organize::choose_rule(
+                &settings.library.organize.rules,
+                &candidate,
+            ) else {
+                continue;
+            };
+            let target_path =
+                crate::domain::library::organize::render_target_path(&settings, rule, &candidate)
+                    .map_err(|err| MeloError::Message(err.to_string()))?;
+            rows.push(OrganizePreviewRow {
+                song_id: candidate.song_id,
+                rule_name: rule.name.clone(),
+                source_path: candidate.source_path,
+                target_path,
+            });
+        }
+
+        Ok(rows)
+    }
+
+    /// 执行 organize，并同步移动同名歌词 sidecar。
+    ///
+    /// # 参数
+    /// - `song_id`：可选歌曲 ID 过滤
+    ///
+    /// # 返回
+    /// - `MeloResult<()>`：执行结果
+    pub async fn apply_organize(&self, song_id: Option<i64>) -> MeloResult<()> {
+        for row in self.preview_organize(song_id).await? {
+            let source = std::path::Path::new(&row.source_path);
+            let target = std::path::Path::new(&row.target_path);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|err| MeloError::Message(err.to_string()))?;
+            }
+            std::fs::rename(source, target).map_err(|err| MeloError::Message(err.to_string()))?;
+
+            for (sidecar_source, sidecar_target) in
+                crate::domain::library::organize::sidecar_targets(source, target)
+            {
+                if let Some(parent) = sidecar_target.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|err| MeloError::Message(err.to_string()))?;
+                }
+                std::fs::rename(sidecar_source, sidecar_target)
+                    .map_err(|err| MeloError::Message(err.to_string()))?;
+            }
+
+            self.repository
+                .record_organized_path(row.song_id, &row.target_path, &row.rule_name)
+                .await?;
+        }
+
+        Ok(())
     }
 }

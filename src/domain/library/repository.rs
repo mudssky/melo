@@ -28,6 +28,21 @@ pub struct ArtworkRefRecord {
     pub source_path: Option<String>,
 }
 
+/// 组织文件时使用的候选歌曲上下文。
+#[derive(Debug, Clone)]
+pub struct OrganizeCandidate {
+    /// 歌曲 ID。
+    pub song_id: i64,
+    /// 原始文件路径。
+    pub source_path: String,
+    /// 标题。
+    pub title: String,
+    /// 艺术家。
+    pub artist: Option<String>,
+    /// 关联的静态歌单名称。
+    pub static_playlists: Vec<String>,
+}
+
 /// 面向 SQLite 的库仓储。
 pub struct LibraryRepository {
     settings: Settings,
@@ -290,5 +305,106 @@ impl LibraryRepository {
 
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
+    /// 读取 organize 候选歌曲。
+    ///
+    /// # 参数
+    /// - `song_id`：可选歌曲 ID 过滤
+    ///
+    /// # 返回
+    /// - `MeloResult<Vec<OrganizeCandidate>>`：候选列表
+    pub async fn organize_candidates(
+        &self,
+        song_id: Option<i64>,
+    ) -> MeloResult<Vec<OrganizeCandidate>> {
+        let conn = connect(&self.settings)?;
+        let sql = if song_id.is_some() {
+            "SELECT songs.id, songs.path, songs.title, artists.name
+             FROM songs
+             LEFT JOIN artists ON artists.id = songs.artist_id
+             WHERE songs.id = ?1
+             ORDER BY songs.id ASC"
+        } else {
+            "SELECT songs.id, songs.path, songs.title, artists.name
+             FROM songs
+             LEFT JOIN artists ON artists.id = songs.artist_id
+             ORDER BY songs.id ASC"
+        };
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+        let mapper = |row: &rusqlite::Row<'_>| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        };
+
+        let rows = if let Some(song_id) = song_id {
+            stmt.query_map([song_id], mapper)
+        } else {
+            stmt.query_map([], mapper)
+        }
+        .map_err(|err| MeloError::Message(err.to_string()))?;
+
+        let mut candidates = Vec::new();
+        for row in rows {
+            let (song_id, source_path, title, artist) =
+                row.map_err(|err| MeloError::Message(err.to_string()))?;
+            let mut playlist_stmt = conn
+                .prepare(
+                    "SELECT playlists.name
+                     FROM playlist_entries
+                     JOIN playlists ON playlists.id = playlist_entries.playlist_id
+                     WHERE playlist_entries.song_id = ?1
+                     ORDER BY playlist_entries.position ASC",
+                )
+                .map_err(|err| MeloError::Message(err.to_string()))?;
+            let playlist_rows = playlist_stmt
+                .query_map([song_id], |playlist_row| playlist_row.get::<_, String>(0))
+                .map_err(|err| MeloError::Message(err.to_string()))?;
+            let static_playlists = playlist_rows
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|err| MeloError::Message(err.to_string()))?;
+
+            candidates.push(OrganizeCandidate {
+                song_id,
+                source_path,
+                title,
+                artist,
+                static_playlists,
+            });
+        }
+
+        Ok(candidates)
+    }
+
+    /// 记录 organize 后的新路径与规则名。
+    ///
+    /// # 参数
+    /// - `song_id`：歌曲 ID
+    /// - `target_path`：目标路径
+    /// - `rule_name`：命中的规则名
+    ///
+    /// # 返回
+    /// - `MeloResult<()>`：写入结果
+    pub async fn record_organized_path(
+        &self,
+        song_id: i64,
+        target_path: &str,
+        rule_name: &str,
+    ) -> MeloResult<()> {
+        let conn = connect(&self.settings)?;
+        conn.execute(
+            "UPDATE songs
+             SET path = ?1, last_organize_rule = ?2, organized_at = datetime('now'), updated_at = datetime('now')
+             WHERE id = ?3",
+            rusqlite::params![target_path, rule_name, song_id],
+        )
+        .map_err(|err| MeloError::Message(err.to_string()))?;
+        Ok(())
     }
 }

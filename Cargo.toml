@@ -24,6 +24,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 utoipa = { version = "5.4.0", features = ["axum_extras"] }
 walkdir = "2.5.0"
+minijinja = "2.5.0"
 
 [profile.dev]
 debug = true

@@ -84,3 +84,14 @@ pub trait MetadataReader: Send + Sync {
     /// - `MeloResult<SongMetadata>`：读取到的元数据
     fn read(&self, path: &Path) -> MeloResult<SongMetadata>;
 }
+
+/// 空实现读取器，仅用于不需要扫描的测试场景。
+pub struct NullMetadataReader;
+
+impl MetadataReader for NullMetadataReader {
+    fn read(&self, _path: &Path) -> MeloResult<SongMetadata> {
+        Err(crate::core::error::MeloError::Message(
+            "NullMetadataReader 不能用于真实扫描".to_string(),
+        ))
+    }
+}
