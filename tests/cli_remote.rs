@@ -25,17 +25,16 @@ async fn status_command_prints_json_snapshot() {
 async fn tui_client_receives_initial_player_snapshot() {
     let state = melo::daemon::app::AppState::for_test().await;
     state
-        .push_snapshot(melo::core::model::player::PlayerSnapshot {
-            playback_state: "playing".into(),
-            current_song: Some(melo::core::model::player::NowPlayingSong {
-                song_id: 7,
-                title: "Blue Bird".into(),
-                duration_seconds: Some(212.0),
-            }),
-            queue_len: 1,
-            queue_index: Some(0),
+        .player
+        .append(melo::core::model::player::QueueItem {
+            song_id: 7,
+            path: "tests/fixtures/full_test.mp3".into(),
+            title: "Blue Bird".into(),
+            duration_seconds: Some(212.0),
         })
+        .await
         .unwrap();
+    state.player.play().await.unwrap();
     let app = melo::daemon::server::router(state);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -49,6 +48,37 @@ async fn tui_client_receives_initial_player_snapshot() {
 
     assert_eq!(snapshot.playback_state, "playing");
     assert_eq!(snapshot.current_song.unwrap().title, "Blue Bird");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queue_show_prints_snapshot_navigation_flags() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    state
+        .player
+        .append(melo::core::model::player::QueueItem {
+            song_id: 1,
+            path: "tests/fixtures/full_test.mp3".into(),
+            title: "Blue Bird".into(),
+            duration_seconds: Some(212.0),
+        })
+        .await
+        .unwrap();
+    let app = melo::daemon::server::router(state);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_BASE_URL", format!("http://{addr}"));
+    cmd.arg("queue").arg("show");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("has_next"))
+        .stdout(predicate::str::contains("queue_len"));
 }
 
 #[test]

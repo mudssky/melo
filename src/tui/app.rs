@@ -71,6 +71,27 @@ impl App {
         self.player = snapshot;
     }
 
+    /// 根据当前快照生成底部状态栏文案。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `String`：底部状态栏文本
+    pub fn footer_status(&self) -> String {
+        if let Some(error) = &self.player.last_error {
+            return format!("ERR {}: {}", error.code, error.message);
+        }
+
+        format!(
+            "{} | queue={} | prev={} | next={}",
+            self.player.playback_state,
+            self.player.queue_len,
+            self.player.has_prev,
+            self.player.has_next
+        )
+    }
+
     /// 计算当前屏幕布局。
     ///
     /// # 参数

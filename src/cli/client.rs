@@ -50,6 +50,8 @@ impl ApiClient {
             .send()
             .await
             .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
             .json()
             .await
             .map_err(|err| MeloError::Message(err.to_string()))
@@ -68,7 +70,139 @@ impl ApiClient {
             .post(url)
             .send()
             .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
             .map_err(|err| MeloError::Message(err.to_string()))?;
         Ok(())
+    }
+
+    /// 发送一个无请求体的 POST 命令，并读取播放器快照。
+    ///
+    /// # 参数
+    /// - `path`：API 路径
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：接口返回的最新快照
+    pub async fn post_json(&self, path: &str) -> MeloResult<PlayerSnapshot> {
+        let url = format!("{}{}", self.base_url, path);
+        self.client
+            .post(url)
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
+    /// 获取当前队列快照。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：当前快照
+    pub async fn queue_show(&self) -> MeloResult<PlayerSnapshot> {
+        let url = format!("{}/api/player/status", self.base_url);
+        self.client
+            .get(url)
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
+    /// 清空远端队列。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn queue_clear(&self) -> MeloResult<PlayerSnapshot> {
+        let url = format!("{}/api/queue/clear", self.base_url);
+        self.client
+            .post(url)
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
+    /// 选择远端队列中的某一项并播放。
+    ///
+    /// # 参数
+    /// - `index`：目标索引
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn queue_play_index(&self, index: usize) -> MeloResult<PlayerSnapshot> {
+        let url = format!("{}/api/queue/play", self.base_url);
+        self.client
+            .post(url)
+            .json(&serde_json::json!({ "index": index }))
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
+    /// 删除远端队列中的某一项。
+    ///
+    /// # 参数
+    /// - `index`：待删除索引
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn queue_remove(&self, index: usize) -> MeloResult<PlayerSnapshot> {
+        let url = format!("{}/api/queue/remove", self.base_url);
+        self.client
+            .post(url)
+            .json(&serde_json::json!({ "index": index }))
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
+    /// 移动远端队列中的某一项。
+    ///
+    /// # 参数
+    /// - `from`：源索引
+    /// - `to`：目标索引
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn queue_move(&self, from: usize, to: usize) -> MeloResult<PlayerSnapshot> {
+        let url = format!("{}/api/queue/move", self.base_url);
+        self.client
+            .post(url)
+            .json(&serde_json::json!({ "from": from, "to": to }))
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
     }
 }

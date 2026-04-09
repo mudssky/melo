@@ -51,7 +51,7 @@ async fn player_service_loads_first_queue_item_on_play() {
     service
         .enqueue(melo::core::model::player::QueueItem {
             song_id: 1,
-            path: "D:/Music/blue-bird.flac".into(),
+            path: "tests/fixtures/full_test.mp3".into(),
             title: "Blue Bird".into(),
             duration_seconds: Some(212.0),
         })

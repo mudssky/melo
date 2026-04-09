@@ -15,6 +15,21 @@ pub struct CliArgs {
     pub command: Option<Command>,
 }
 
+/// 播放队列相关子命令。
+#[derive(Debug, Subcommand)]
+pub enum QueueCommand {
+    #[command(about = "Print the current queue snapshot")]
+    Show,
+    #[command(about = "Remove a queue item by index")]
+    Remove { index: usize },
+    #[command(about = "Move a queue item to a new index")]
+    Move { from: usize, to: usize },
+    #[command(about = "Clear the entire queue")]
+    Clear,
+    #[command(about = "Play a queue item by index")]
+    Play { index: usize },
+}
+
 /// Melo 第一层命令定义。
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -46,7 +61,10 @@ pub enum Command {
         about = "Inspect or manipulate the in-memory playback queue",
         long_about = "Inspect or manipulate the in-memory playback queue exposed by the daemon."
     )]
-    Queue,
+    Queue {
+        #[command(subcommand)]
+        command: QueueCommand,
+    },
     #[command(
         about = "Manage static playlists and preview smart playlist results",
         long_about = "Manage static playlists and preview smart playlist results so users can distinguish saved membership changes from query-only previews.",

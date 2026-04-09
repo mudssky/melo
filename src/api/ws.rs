@@ -26,7 +26,7 @@ pub async fn player_updates(socket: WebSocketUpgrade, State(state): State<AppSta
 /// # 返回值
 /// - 无
 async fn stream_player_snapshots(mut socket: WebSocket, state: AppState) {
-    let mut receiver = state.snapshot_receiver();
+    let mut receiver = state.player.subscribe();
     let initial_snapshot = receiver.borrow().clone();
     if send_snapshot(&mut socket, initial_snapshot).await.is_err() {
         return;

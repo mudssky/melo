@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use crate::cli::args::{CliArgs, Command, DbCommand};
+use crate::cli::args::{CliArgs, Command, DbCommand, QueueCommand};
 use crate::core::error::MeloResult;
 
 /// 解析命令行参数并交给后续子命令实现。
@@ -20,14 +20,80 @@ pub async fn run() -> MeloResult<()> {
             println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
         }
         Some(Command::Play) => {
-            crate::cli::client::ApiClient::from_env()
-                .post_no_body("/api/player/play")
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .post_json("/api/player/play")
                 .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
         }
         Some(Command::Pause) => {
-            crate::cli::client::ApiClient::from_env()
-                .post_no_body("/api/player/pause")
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .post_json("/api/player/pause")
                 .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Toggle) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .post_json("/api/player/toggle")
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Next) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .post_json("/api/player/next")
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Prev) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .post_json("/api/player/prev")
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Stop) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .post_json("/api/player/stop")
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Queue {
+            command: QueueCommand::Show,
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .queue_show()
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Queue {
+            command: QueueCommand::Remove { index },
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .queue_remove(index)
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Queue {
+            command: QueueCommand::Move { from, to },
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .queue_move(from, to)
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Queue {
+            command: QueueCommand::Clear,
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .queue_clear()
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Queue {
+            command: QueueCommand::Play { index },
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .queue_play_index(index)
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
         }
         Some(Command::Db {
             command: DbCommand::Path,

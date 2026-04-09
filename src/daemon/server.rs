@@ -21,6 +21,54 @@ pub fn router(state: AppState) -> Router {
             axum::routing::get(crate::api::player::status),
         )
         .route(
+            "/api/player/play",
+            axum::routing::post(crate::api::player::play),
+        )
+        .route(
+            "/api/player/pause",
+            axum::routing::post(crate::api::player::pause),
+        )
+        .route(
+            "/api/player/toggle",
+            axum::routing::post(crate::api::player::toggle),
+        )
+        .route(
+            "/api/player/stop",
+            axum::routing::post(crate::api::player::stop),
+        )
+        .route(
+            "/api/player/next",
+            axum::routing::post(crate::api::player::next),
+        )
+        .route(
+            "/api/player/prev",
+            axum::routing::post(crate::api::player::prev),
+        )
+        .route(
+            "/api/queue/add",
+            axum::routing::post(crate::api::queue::add),
+        )
+        .route(
+            "/api/queue/insert",
+            axum::routing::post(crate::api::queue::insert),
+        )
+        .route(
+            "/api/queue/clear",
+            axum::routing::post(crate::api::queue::clear),
+        )
+        .route(
+            "/api/queue/play",
+            axum::routing::post(crate::api::queue::play_index),
+        )
+        .route(
+            "/api/queue/remove",
+            axum::routing::post(crate::api::queue::remove),
+        )
+        .route(
+            "/api/queue/move",
+            axum::routing::post(crate::api::queue::move_item),
+        )
+        .route(
             "/api/ws/player",
             axum::routing::get(crate::api::ws::player_updates),
         )
