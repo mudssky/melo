@@ -32,6 +32,71 @@ Melo 的核心不是替代 beets 的 autotag 能力，而是形成 `library + pl
 - `player` 决定怎么播放
 - `tui` 决定怎么控制
 
+### 2.1 一期依赖落地要求
+
+一期不要求 `Cargo.toml` 中的所有依赖都已经被接入，但要求“核心运行链路”上的依赖必须真正投入使用，不能只停留在声明状态。
+
+#### 2.1.1 一期必须真正落地的依赖
+
+- `sea-orm`
+- `sea-orm-migration`
+- `lofty`
+- `rodio`
+- `tokio-tungstenite`
+- `tower-http`
+- `unicode-width`
+- `mime_guess`
+- `tracing`
+- `tracing-subscriber`
+
+这些依赖分别对应：
+
+- `sea-orm` / `sea-orm-migration`
+  一期数据库访问与 schema migration 的正式实现。`rusqlite` 不应继续作为生产路径上的主持久化层。
+- `lofty`
+  音频文件元数据、歌词、封面读取的正式实现。
+- `rodio`
+  daemon 内真实播放后端，而不是仅保留空实现或测试替身。
+- `tokio-tungstenite`
+  TUI 作为 Rust 客户端连接 daemon WebSocket 的正式实现。
+- `tower-http`
+  daemon 的 trace、基础中间件、必要的跨域与通用 HTTP 层配置。
+- `unicode-width`
+  TUI 中 CJK 歌名、专辑名、歌词等文本宽度计算。
+- `mime_guess`
+  封面 sidecar 和 artwork 响应的 MIME 推断。
+- `tracing` / `tracing-subscriber`
+  结构化日志入口、过滤与输出配置。
+
+#### 2.1.2 已经进入主链路、无需额外强调的依赖
+
+- `axum`
+- `clap`
+- `config`
+- `crossterm`
+- `reqwest`
+- `minijinja`
+- `serde`
+- `serde_json`
+- `thiserror`
+- `tokio`
+- `walkdir`
+
+#### 2.1.3 可以保留但不作为一期必须项的依赖
+
+- `inquire`
+- `utoipa`
+
+这两者可以保留在依赖清单中，但不要求在一期完成前必须有正式接入。
+
+#### 2.1.4 持久化层收敛原则
+
+一期的数据库层必须收敛到 `SeaORM` 体系：
+
+- repository 层不再继续扩展新的 `rusqlite` 直连实现
+- schema 和 migration 以 `sea-orm-migration` 为主
+- 若测试或脚本仍暂时使用 `rusqlite`，其职责应局限于测试辅助或独立迁移脚本，而不是业务主链路
+
 ## 3. CLI 信息架构
 
 一期 CLI 采用“少量一级快捷命令 + 领域二级命令”的混合结构。
@@ -114,6 +179,23 @@ melo config validate
 - `playlist` 是用户资产，分 `static` 和 `smart` 两类
 - `smart playlist` 定义源在配置文件中，不通过 CLI 创建
 - `organize` 是独立能力，不从属于歌单
+
+### 3.5 CLI 帮助文档要求
+
+一期 CLI 不仅要有命令，还要提供可用的帮助文档。要求如下：
+
+- 顶层命令和每个一级领域命令都必须提供明确的 `about`
+- 对于行为复杂的命令，应补充 `long_about`
+- 关键参数和子命令必须有可读的帮助文本，避免只暴露裸名字
+- `melo --help`、`melo <command> --help`、`melo <command> <subcommand> --help` 都应输出结构化帮助
+- 帮助文本中要明确区分：
+  - `queue` 是运行态
+  - `playlist` 是用户资产
+  - `organize` 是文件组织能力
+- 对用户最常用的命令，应在帮助文本中加入简短示例，例如：
+  - `melo status`
+  - `melo library scan`
+  - `melo playlist load Favorites --play`
 
 ## 4. `melo db` 的职责
 
@@ -686,6 +768,18 @@ TUI 封面显示是增强项，不是一期核心可用性依赖。
 - queue 管理
 - 文件组织预览与执行
 - 独立 beets 迁移脚本
+- 核心运行链路依赖的正式接入：
+  - `sea-orm`
+  - `sea-orm-migration`
+  - `lofty`
+  - `rodio`
+  - `tokio-tungstenite`
+  - `tower-http`
+  - `unicode-width`
+  - `mime_guess`
+  - `tracing`
+  - `tracing-subscriber`
+- CLI 帮助文档补全
 
 ### 14.2 明确不做
 
