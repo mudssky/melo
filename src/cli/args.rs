@@ -28,6 +28,20 @@ pub enum Command {
     Library,
     Queue,
     Playlist,
-    Db,
+    Db {
+        #[command(subcommand)]
+        command: DbCommand,
+    },
     Config,
+}
+
+/// 数据库维护子命令。
+#[derive(Debug, Subcommand)]
+pub enum DbCommand {
+    Path,
+    Init,
+    Migrate,
+    Doctor,
+    Vacuum,
+    Backup { dest: Option<String> },
 }
