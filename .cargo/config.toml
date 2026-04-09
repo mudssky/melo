@@ -2,4 +2,4 @@
 c = "check"
 
 [target.x86_64-pc-windows-msvc]
-linker = "lld-link"
+linker = "rust-lld"
