@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 /// 播放队列中的单项。
 #[derive(Debug, Clone)]
 pub struct QueueItem {
@@ -12,7 +14,7 @@ pub struct QueueItem {
 }
 
 /// 当前正在播放的歌曲摘要。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NowPlayingSong {
     /// 歌曲 ID。
     pub song_id: i64,
@@ -23,7 +25,7 @@ pub struct NowPlayingSong {
 }
 
 /// 对外暴露的播放器状态快照。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct PlayerSnapshot {
     /// 播放状态。
     pub playback_state: String,
