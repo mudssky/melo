@@ -8,6 +8,7 @@ axum = "0.8.8"
 camino = { version = "1.1.9", features = ["serde1"] }
 clap = { version = "4.6.0", features = ["derive"] }
 config = { version = "0.15.22", default-features = false, features = ["toml"] }
+crossterm = "0.28.1"
 inquire = { version = "0.9.4", default-features = false, features = ["crossterm", "fuzzy", "macros", "one-liners"] }
 lofty = "0.23.3"
 ratatui = { version = "0.30.0", default-features = false, features = ["crossterm"] }
