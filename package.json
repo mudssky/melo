@@ -14,6 +14,8 @@
   "devDependencies": {
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
-    "rumdl": "^0.1.67"
+    "rumdl": "^0.1.67",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
   }
 }
