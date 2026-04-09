@@ -11,6 +11,7 @@ config = { version = "0.15.22", default-features = false, features = ["toml"] }
 inquire = { version = "0.9.4", default-features = false, features = ["crossterm", "fuzzy", "macros", "one-liners"] }
 lofty = "0.23.3"
 ratatui = { version = "0.30.0", default-features = false, features = ["crossterm"] }
+reqwest = { version = "0.12.12", features = ["json"] }
 rodio = { version = "0.22.2", default-features = false, features = ["flac", "mp3", "playback", "vorbis", "wav"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 sea-orm = { version = "1.1.20", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-sqlite", "with-json"] }
