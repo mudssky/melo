@@ -1,5 +1,12 @@
+use sea_orm::ActiveValue::Set;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait,
+    QueryFilter, Statement,
+};
+
 use crate::core::config::settings::Settings;
 use crate::core::db::connection::connect;
+use crate::core::db::entities::{playlist_entries, playlists};
 use crate::core::error::{MeloError, MeloResult};
 
 /// 静态歌单摘要。
@@ -22,7 +29,7 @@ impl PlaylistRepository {
     /// # 参数
     /// - `settings`：全局配置
     ///
-    /// # 返回
+    /// # 返回值
     /// - `Self`：仓储对象
     pub fn new(settings: Settings) -> Self {
         Self { settings }
@@ -34,14 +41,20 @@ impl PlaylistRepository {
     /// - `name`：歌单名
     /// - `description`：可选描述
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<()>`：创建结果
     pub async fn create_static(&self, name: &str, description: Option<&str>) -> MeloResult<()> {
-        let conn = connect(&self.settings)?;
-        conn.execute(
-            "INSERT INTO playlists (name, description, created_at, updated_at) VALUES (?1, ?2, datetime('now'), datetime('now'))",
-            rusqlite::params![name, description],
-        )
+        let connection = connect(&self.settings).await?;
+        let now = crate::core::db::now_text();
+        playlists::ActiveModel {
+            name: Set(name.to_string()),
+            description: Set(description.map(ToString::to_string)),
+            created_at: Set(now.clone()),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&connection)
+        .await
         .map_err(|err| MeloError::Message(err.to_string()))?;
         Ok(())
     }
@@ -52,29 +65,34 @@ impl PlaylistRepository {
     /// - `name`：歌单名
     /// - `song_ids`：歌曲 ID 列表
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<()>`：写入结果
     pub async fn add_songs(&self, name: &str, song_ids: &[i64]) -> MeloResult<()> {
-        let conn = connect(&self.settings)?;
-        let playlist_id: i64 = conn
-            .query_row("SELECT id FROM playlists WHERE name = ?1", [name], |row| {
-                row.get(0)
-            })
-            .map_err(|err| MeloError::Message(err.to_string()))?;
+        let connection = connect(&self.settings).await?;
+        let playlist = playlists::Entity::find()
+            .filter(playlists::Column::Name.eq(name))
+            .one(&connection)
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .ok_or_else(|| MeloError::Message(format!("未找到歌单: {name}")))?;
 
-        let current_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM playlist_entries WHERE playlist_id = ?1",
-                [playlist_id],
-                |row| row.get(0),
-            )
-            .map_err(|err| MeloError::Message(err.to_string()))?;
+        let current_count = playlist_entries::Entity::find()
+            .filter(playlist_entries::Column::PlaylistId.eq(playlist.id))
+            .count(&connection)
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))? as i64;
+        let now = crate::core::db::now_text();
 
         for (offset, song_id) in song_ids.iter().enumerate() {
-            conn.execute(
-                "INSERT INTO playlist_entries (playlist_id, song_id, position, added_at) VALUES (?1, ?2, ?3, datetime('now'))",
-                rusqlite::params![playlist_id, song_id, current_count + offset as i64],
-            )
+            playlist_entries::ActiveModel {
+                playlist_id: Set(playlist.id),
+                song_id: Set(*song_id),
+                position: Set(current_count + offset as i64),
+                added_at: Set(now.clone()),
+                ..Default::default()
+            }
+            .insert(&connection)
+            .await
             .map_err(|err| MeloError::Message(err.to_string()))?;
         }
 
@@ -86,30 +104,31 @@ impl PlaylistRepository {
     /// # 参数
     /// - 无
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<Vec<StaticPlaylistSummary>>`：静态歌单摘要列表
     pub async fn list_static(&self) -> MeloResult<Vec<StaticPlaylistSummary>> {
-        let conn = connect(&self.settings)?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT playlists.name, COUNT(playlist_entries.id)
+        let connection = connect(&self.settings).await?;
+        let rows = connection
+            .query_all(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT playlists.name AS name, COUNT(playlist_entries.id) AS count
                  FROM playlists
                  LEFT JOIN playlist_entries ON playlist_entries.playlist_id = playlists.id
                  GROUP BY playlists.id
-                 ORDER BY playlists.name ASC",
-            )
+                 ORDER BY playlists.name ASC"
+                    .to_string(),
+            ))
+            .await
             .map_err(|err| MeloError::Message(err.to_string()))?;
 
-        let rows = stmt
-            .query_map([], |row| {
+        rows.into_iter()
+            .map(|row| {
                 Ok(StaticPlaylistSummary {
-                    name: row.get(0)?,
-                    count: row.get::<_, i64>(1)? as usize,
+                    name: row.try_get("", "name")?,
+                    count: row.try_get::<i64>("", "count")? as usize,
                 })
             })
-            .map_err(|err| MeloError::Message(err.to_string()))?;
-
-        rows.collect::<Result<Vec<_>, _>>()
+            .collect::<Result<Vec<_>, sea_orm::DbErr>>()
             .map_err(|err| MeloError::Message(err.to_string()))
     }
 
@@ -118,36 +137,38 @@ impl PlaylistRepository {
     /// # 参数
     /// - `name`：歌单名
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<Vec<SongRecord>>`：歌单歌曲列表
     pub async fn preview_static(
         &self,
         name: &str,
     ) -> MeloResult<Vec<crate::domain::library::repository::SongRecord>> {
-        let conn = connect(&self.settings)?;
-        let mut stmt = conn
-            .prepare(
+        let connection = connect(&self.settings).await?;
+        let rows = connection
+            .query_all(Statement::from_sql_and_values(
+                DatabaseBackend::Sqlite,
                 "SELECT songs.id, songs.title, songs.lyrics, songs.lyrics_source_kind
                  FROM playlists
                  JOIN playlist_entries ON playlist_entries.playlist_id = playlists.id
                  JOIN songs ON songs.id = playlist_entries.song_id
-                 WHERE playlists.name = ?1
-                 ORDER BY playlist_entries.position ASC",
-            )
+                 WHERE playlists.name = ?
+                 ORDER BY playlist_entries.position ASC"
+                    .to_string(),
+                [name.into()],
+            ))
+            .await
             .map_err(|err| MeloError::Message(err.to_string()))?;
 
-        let rows = stmt
-            .query_map([name], |row| {
+        rows.into_iter()
+            .map(|row| {
                 Ok(crate::domain::library::repository::SongRecord {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    lyrics: row.get(2)?,
-                    lyrics_source_kind: row.get(3)?,
+                    id: row.try_get("", "id")?,
+                    title: row.try_get("", "title")?,
+                    lyrics: row.try_get("", "lyrics")?,
+                    lyrics_source_kind: row.try_get("", "lyrics_source_kind")?,
                 })
             })
-            .map_err(|err| MeloError::Message(err.to_string()))?;
-
-        rows.collect::<Result<Vec<_>, _>>()
+            .collect::<Result<Vec<_>, sea_orm::DbErr>>()
             .map_err(|err| MeloError::Message(err.to_string()))
     }
 }

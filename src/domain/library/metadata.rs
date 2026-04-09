@@ -16,7 +16,7 @@ impl LyricsSourceKind {
     /// # 参数
     /// - 无
     ///
-    /// # 返回
+    /// # 返回值
     /// - `&'static str`：数据库存储值
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -73,22 +73,29 @@ pub struct SongMetadata {
     pub channels: Option<u32>,
 }
 
-/// 元数据读取器接口，便于后续切换为 Lofty 实现或测试替身。
+/// 元数据读取器接口，便于切换为真实实现或测试替身。
 pub trait MetadataReader: Send + Sync {
     /// 从音频文件读取元数据。
     ///
     /// # 参数
     /// - `path`：音频文件路径
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<SongMetadata>`：读取到的元数据
     fn read(&self, path: &Path) -> MeloResult<SongMetadata>;
 }
 
-/// 空实现读取器，仅用于不需要扫描的测试场景。
+/// 空实现读取器，仅用于不需要真实扫描的测试场景。
 pub struct NullMetadataReader;
 
 impl MetadataReader for NullMetadataReader {
+    /// 返回一个明确的占位实现错误。
+    ///
+    /// # 参数
+    /// - `_path`：音频文件路径
+    ///
+    /// # 返回值
+    /// - `MeloResult<SongMetadata>`：占位实现始终返回错误
     fn read(&self, _path: &Path) -> MeloResult<SongMetadata> {
         Err(crate::core::error::MeloError::Message(
             "NullMetadataReader 不能用于真实扫描".to_string(),

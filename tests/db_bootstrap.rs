@@ -1,16 +1,33 @@
+use sea_orm::{ConnectionTrait, Database, Statement};
+
 use melo::core::config::settings::Settings;
 use melo::core::db::bootstrap::DatabaseBootstrap;
 use tempfile::tempdir;
 
 #[tokio::test]
-async fn db_init_creates_required_tables() {
+async fn db_init_runs_seaorm_migrations() {
     let temp = tempdir().unwrap();
     let db_path = temp.path().join("melo.db");
 
     let settings = Settings::for_test(db_path.clone());
     DatabaseBootstrap::new(&settings).init().await.unwrap();
 
-    let tables = DatabaseBootstrap::table_names(db_path).unwrap();
+    let database_url = format!(
+        "sqlite://{}?mode=rwc",
+        db_path.to_string_lossy().replace('\\', "/")
+    );
+    let connection = Database::connect(&database_url).await.unwrap();
+    let rows = connection
+        .query_all(Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name".to_string(),
+        ))
+        .await
+        .unwrap();
+    let tables = rows
+        .into_iter()
+        .map(|row| row.try_get::<String>("", "name").unwrap())
+        .collect::<Vec<_>>();
 
     assert!(tables.contains(&"artists".to_string()));
     assert!(tables.contains(&"albums".to_string()));
@@ -18,5 +35,5 @@ async fn db_init_creates_required_tables() {
     assert!(tables.contains(&"playlists".to_string()));
     assert!(tables.contains(&"playlist_entries".to_string()));
     assert!(tables.contains(&"artwork_refs".to_string()));
-    assert!(tables.contains(&"migrations".to_string()));
+    assert!(tables.contains(&"seaql_migrations".to_string()));
 }

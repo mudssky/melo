@@ -33,6 +33,16 @@ impl PlaybackBackend for FakeBackend {
     }
 }
 
+#[test]
+fn production_backend_type_is_rodio_backend() {
+    fn assert_backend_type<T: PlaybackBackend>() {}
+
+    assert_backend_type::<melo::domain::player::rodio_backend::RodioBackend>();
+    let _constructor: fn() -> melo::core::error::MeloResult<
+        melo::domain::player::rodio_backend::RodioBackend,
+    > = melo::domain::player::rodio_backend::RodioBackend::new;
+}
+
 #[tokio::test]
 async fn player_service_loads_first_queue_item_on_play() {
     let backend = Arc::new(FakeBackend::default());

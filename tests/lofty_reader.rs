@@ -1,14 +1,11 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use lofty::config::WriteOptions;
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::*;
 use lofty::probe::Probe;
-use melo::core::config::settings::Settings;
-use melo::core::db::bootstrap::DatabaseBootstrap;
 use melo::domain::library::lofty_reader::LoftyMetadataReader;
-use melo::domain::library::service::LibraryService;
+use melo::domain::library::metadata::{LyricsSourceKind, MetadataReader};
 use tempfile::tempdir;
 
 /// 将仓库内的最小 MP3 fixture 复制到临时目录并写入可预测的标签。
@@ -37,7 +34,7 @@ fn prepare_tagged_fixture(target: &Path) -> Result<(), Box<dyn std::error::Error
     tag.set_genre("J-Pop".to_string());
     tag.set_track(1);
     tag.set_disk(1);
-    tag.insert_text(ItemKey::UnsyncLyrics, "embedded words".to_string());
+    tag.insert_text(ItemKey::UnsyncLyrics, "fly high".to_string());
     tag.push_picture(
         Picture::unchecked(vec![0xFF, 0xD8, 0xFF, 0xD9])
             .pic_type(PictureType::CoverFront)
@@ -49,38 +46,32 @@ fn prepare_tagged_fixture(target: &Path) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-#[tokio::test]
-async fn scan_prefers_sidecar_lyrics_and_cover_over_embedded_metadata() {
+#[test]
+fn lofty_reader_extracts_title_lyrics_format_and_embedded_artwork() {
     let temp = tempdir().unwrap();
-    let db_path = temp.path().join("melo.db");
-    let music_dir = temp.path().join("music");
-    std::fs::create_dir_all(&music_dir).unwrap();
-
-    let song_path = music_dir.join("blue-bird.mp3");
-    let lrc_path = music_dir.join("blue-bird.lrc");
-    let cover_path = music_dir.join("cover.jpg");
-
+    let song_path = temp.path().join("blue-bird.mp3");
     prepare_tagged_fixture(&song_path).unwrap();
-    std::fs::write(&lrc_path, "[00:01.00]sidecar words").unwrap();
-    std::fs::write(&cover_path, b"jpeg").unwrap();
 
-    let settings = Settings::for_test(db_path);
-    DatabaseBootstrap::new(&settings).init().await.unwrap();
+    let reader = LoftyMetadataReader;
+    let metadata = reader.read(&song_path).unwrap();
 
-    let service = LibraryService::new(settings, Arc::new(LoftyMetadataReader));
-    service.scan_paths(&[music_dir]).await.unwrap();
-
-    let songs = service.list_songs().await.unwrap();
-    assert_eq!(songs.len(), 1);
-    assert_eq!(songs[0].title, "Blue Bird");
-    assert_eq!(songs[0].lyrics.as_deref(), Some("sidecar words"));
-    assert_eq!(songs[0].lyrics_source_kind, "sidecar");
-
-    let artwork = service
-        .artwork_for_song(songs[0].id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(artwork.source_kind, "sidecar");
-    assert!(artwork.source_path.unwrap().ends_with("cover.jpg"));
+    assert_eq!(metadata.title, "Blue Bird");
+    assert_eq!(metadata.artist.as_deref(), Some("Ikimono-gakari"));
+    assert_eq!(metadata.album.as_deref(), Some("Blue Bird"));
+    assert_eq!(metadata.track_no, Some(1));
+    assert_eq!(metadata.disc_no, Some(1));
+    assert_eq!(metadata.genre.as_deref(), Some("J-Pop"));
+    assert_eq!(metadata.lyrics.as_deref(), Some("fly high"));
+    assert_eq!(metadata.lyrics_source_kind, LyricsSourceKind::Embedded);
+    assert_eq!(metadata.lyrics_format.as_deref(), Some("plain"));
+    assert_eq!(metadata.format.as_deref(), Some("mp3"));
+    assert_eq!(
+        metadata
+            .embedded_artwork
+            .as_ref()
+            .and_then(|artwork| artwork.mime.as_deref()),
+        Some("image/jpeg")
+    );
+    assert!(metadata.duration_seconds.unwrap_or_default() > 0.0);
+    assert!(metadata.channels.unwrap_or_default() > 0);
 }

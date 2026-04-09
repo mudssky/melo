@@ -24,3 +24,11 @@ async fn tui_updates_player_snapshot_from_ws_messages() {
     assert_eq!(app.player.playback_state, "playing");
     assert_eq!(app.player.current_song.unwrap().title, "Blue Bird");
 }
+
+#[test]
+fn tui_song_rows_measure_cjk_width_correctly() {
+    let rendered = melo::tui::ui::content::render_song_title("夜に駆ける", 5);
+
+    assert_eq!(rendered, "夜に…");
+    assert_eq!(unicode_width::UnicodeWidthStr::width(rendered.as_str()), 5);
+}

@@ -17,7 +17,7 @@ impl TestHarness {
     /// # 参数
     /// - 无
     ///
-    /// # 返回
+    /// # 返回值
     /// - `Self`：测试辅助器
     pub async fn new() -> Self {
         let root = tempfile::tempdir().expect("必须能创建临时目录");
@@ -35,7 +35,7 @@ impl TestHarness {
     /// # 参数
     /// - `contents`：附加的 TOML 内容
     ///
-    /// # 返回
+    /// # 返回值
     /// - 无
     pub async fn write_config(&self, contents: &str) {
         let config_path = self.root.path().join("config.toml");
@@ -60,7 +60,7 @@ impl TestHarness {
     /// # 参数
     /// - 无
     ///
-    /// # 返回
+    /// # 返回值
     /// - `PlaylistService`：测试用歌单服务
     pub fn playlist_service(&self) -> PlaylistService {
         PlaylistService::new(self.settings.clone())
@@ -71,7 +71,7 @@ impl TestHarness {
     /// # 参数
     /// - 无
     ///
-    /// # 返回
+    /// # 返回值
     /// - `LibraryService`：测试用媒体库服务
     pub fn library_service(&self) -> LibraryService {
         LibraryService::for_test(self.settings.clone())
@@ -85,11 +85,11 @@ impl TestHarness {
     /// - `album`：专辑
     /// - `year`：年份
     ///
-    /// # 返回
+    /// # 返回值
     /// - 无
     pub async fn seed_song(&self, title: &str, artist: &str, album: &str, year: i32) {
-        let conn =
-            crate::core::db::connection::connect(&self.settings).expect("必须能连接测试数据库");
+        let conn = rusqlite::Connection::open(self.settings.database.path.as_std_path())
+            .expect("必须能连接测试数据库");
 
         conn.execute(
             "INSERT INTO artists (name, sort_name, search_name, created_at, updated_at) VALUES (?1, ?1, lower(?1), datetime('now'), datetime('now'))",
@@ -118,7 +118,7 @@ impl TestHarness {
     /// # 参数
     /// - `relative`：相对临时目录的路径
     ///
-    /// # 返回
+    /// # 返回值
     /// - `PathBuf`：实际写入路径
     pub async fn write_song_file(&self, relative: &str) -> std::path::PathBuf {
         let path = self.root.path().join(relative);
@@ -135,7 +135,7 @@ impl TestHarness {
     /// - `relative`：相对路径
     /// - `contents`：文件内容
     ///
-    /// # 返回
+    /// # 返回值
     /// - 无
     pub async fn write_file(&self, relative: &str, contents: impl AsRef<[u8]>) {
         let path = self.root.path().join(relative);
@@ -150,13 +150,13 @@ impl TestHarness {
     /// # 参数
     /// - `relative`：相对路径
     ///
-    /// # 返回
+    /// # 返回值
     /// - `bool`：是否存在
     pub async fn file_exists(&self, relative: &str) -> bool {
         self.root.path().join(relative).exists()
     }
 
-    /// 插入一首已经关联歌词 sidecar 和静态歌单的歌曲。
+    /// 插入一首已关联歌词 sidecar 和静态歌单的歌曲。
     ///
     /// # 参数
     /// - `title`：标题
@@ -164,7 +164,7 @@ impl TestHarness {
     /// - `playlist`：静态歌单名
     /// - `path`：真实文件路径
     ///
-    /// # 返回
+    /// # 返回值
     /// - 无
     pub async fn seed_scanned_song_with_sidecar(
         &self,
@@ -174,8 +174,8 @@ impl TestHarness {
         path: &std::path::Path,
     ) {
         self.seed_song(title, artist, title, 0).await;
-        let conn =
-            crate::core::db::connection::connect(&self.settings).expect("必须能连接测试数据库");
+        let conn = rusqlite::Connection::open(self.settings.database.path.as_std_path())
+            .expect("必须能连接测试数据库");
 
         let song_id: i64 = conn
             .query_row("SELECT id FROM songs ORDER BY id DESC LIMIT 1", [], |row| {

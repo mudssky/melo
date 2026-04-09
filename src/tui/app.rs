@@ -1,3 +1,5 @@
+use ratatui::layout::Rect;
+
 use crate::core::model::player::PlayerSnapshot;
 use crate::tui::event::Action;
 
@@ -29,7 +31,7 @@ impl App {
     /// # 参数
     /// - 无
     ///
-    /// # 返回
+    /// # 返回值
     /// - `Self`：测试用 app 状态
     pub fn new_for_test() -> Self {
         Self {
@@ -44,7 +46,7 @@ impl App {
     /// # 参数
     /// - `key`：键盘事件
     ///
-    /// # 返回
+    /// # 返回值
     /// - `Option<Action>`：命中的动作
     pub fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> Option<Action> {
         match key.code {
@@ -63,9 +65,32 @@ impl App {
     /// # 参数
     /// - `snapshot`：播放器快照
     ///
-    /// # 返回
+    /// # 返回值
     /// - 无
     pub fn apply_snapshot(&mut self, snapshot: PlayerSnapshot) {
         self.player = snapshot;
+    }
+
+    /// 计算当前屏幕布局。
+    ///
+    /// # 参数
+    /// - `area`：可用矩形区域
+    ///
+    /// # 返回值
+    /// - `AppLayout`：拆分后的 TUI 布局
+    pub fn layout(&self, area: Rect) -> crate::tui::ui::layout::AppLayout {
+        crate::tui::ui::layout::split(area)
+    }
+
+    /// 按显示宽度格式化歌曲标题。
+    ///
+    /// # 参数
+    /// - `title`：原始标题
+    /// - `width`：可用宽度
+    ///
+    /// # 返回值
+    /// - `String`：适配宽度后的显示文本
+    pub fn format_song_title(&self, title: &str, width: usize) -> String {
+        crate::tui::ui::content::render_song_title(title, width)
     }
 }

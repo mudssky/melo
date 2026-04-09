@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::core::config::settings::Settings;
 use crate::core::error::{MeloError, MeloResult};
+use crate::domain::library::lofty_reader::LoftyMetadataReader;
 use crate::domain::library::metadata::{LyricsSourceKind, MetadataReader, NullMetadataReader};
 use crate::domain::library::organize::OrganizePreviewRow;
 use crate::domain::library::repository::{ArtworkRefRecord, LibraryRepository, SongRecord};
@@ -20,7 +21,7 @@ impl LibraryService {
     /// - `settings`：全局配置
     /// - `reader`：元数据读取器
     ///
-    /// # 返回
+    /// # 返回值
     /// - `Self`：媒体库服务
     pub fn new(settings: Settings, reader: Arc<dyn MetadataReader>) -> Self {
         let repository = LibraryRepository::new(settings.clone());
@@ -31,12 +32,23 @@ impl LibraryService {
         }
     }
 
+    /// 创建默认使用 `Lofty` 的媒体库服务。
+    ///
+    /// # 参数
+    /// - `settings`：全局配置
+    ///
+    /// # 返回值
+    /// - `Self`：默认生产用媒体库服务
+    pub fn with_lofty(settings: Settings) -> Self {
+        Self::new(settings, Arc::new(LoftyMetadataReader))
+    }
+
     /// 构造一个仅用于测试的服务。
     ///
     /// # 参数
     /// - `settings`：全局配置
     ///
-    /// # 返回
+    /// # 返回值
     /// - `Self`：测试用服务
     pub fn for_test(settings: Settings) -> Self {
         Self::new(settings, Arc::new(NullMetadataReader))
@@ -47,7 +59,7 @@ impl LibraryService {
     /// # 参数
     /// - `roots`：待扫描目录列表
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<()>`：扫描结果
     pub async fn scan_paths(&self, roots: &[std::path::PathBuf]) -> MeloResult<()> {
         let _ = &self.settings;
@@ -68,13 +80,17 @@ impl LibraryService {
 
                 let mut metadata = self.reader.read(path)?;
                 let mut lyrics_source_path = None;
-                if let Some((source_path, lyrics, format)) =
-                    crate::domain::library::assets::find_sidecar_lyrics(path)
+                if let Some(resolved_lyrics) =
+                    crate::domain::library::assets::resolve_lyrics(path, &metadata)
                 {
-                    metadata.lyrics = Some(lyrics);
-                    metadata.lyrics_source_kind = LyricsSourceKind::Sidecar;
-                    metadata.lyrics_format = Some(format);
-                    lyrics_source_path = Some(source_path);
+                    metadata.lyrics = Some(resolved_lyrics.text);
+                    metadata.lyrics_source_kind = resolved_lyrics.source_kind;
+                    metadata.lyrics_format = Some(resolved_lyrics.format);
+                    lyrics_source_path = resolved_lyrics.source_path;
+                } else {
+                    metadata.lyrics = None;
+                    metadata.lyrics_source_kind = LyricsSourceKind::None;
+                    metadata.lyrics_format = None;
                 }
 
                 let cover_path = crate::domain::library::assets::find_cover(path);
@@ -97,7 +113,7 @@ impl LibraryService {
     /// # 参数
     /// - 无
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<Vec<SongRecord>>`：歌曲列表
     pub async fn list_songs(&self) -> MeloResult<Vec<SongRecord>> {
         self.repository.list_songs().await
@@ -108,7 +124,7 @@ impl LibraryService {
     /// # 参数
     /// - `song_id`：歌曲 ID
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<Option<ArtworkRefRecord>>`：封面引用记录
     pub async fn artwork_for_song(&self, song_id: i64) -> MeloResult<Option<ArtworkRefRecord>> {
         self.repository.artwork_for_song(song_id).await
@@ -119,7 +135,7 @@ impl LibraryService {
     /// # 参数
     /// - `song_id`：可选歌曲 ID 过滤
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<Vec<OrganizePreviewRow>>`：预览结果
     pub async fn preview_organize(
         &self,
@@ -155,7 +171,7 @@ impl LibraryService {
     /// # 参数
     /// - `song_id`：可选歌曲 ID 过滤
     ///
-    /// # 返回
+    /// # 返回值
     /// - `MeloResult<()>`：执行结果
     pub async fn apply_organize(&self, song_id: Option<i64>) -> MeloResult<()> {
         for row in self.preview_organize(song_id).await? {

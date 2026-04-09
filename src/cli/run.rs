@@ -39,7 +39,7 @@ pub async fn run() -> MeloResult<()> {
             command: DbCommand::Vacuum,
         }) => {
             let settings = crate::core::config::settings::Settings::load()?;
-            crate::core::db::maintenance::vacuum(settings.database.path.as_std_path())?;
+            crate::core::db::maintenance::vacuum(settings.database.path.as_std_path()).await?;
         }
         Some(Command::Db {
             command: DbCommand::Backup { dest },

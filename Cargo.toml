@@ -5,11 +5,12 @@ edition = "2024"
 
 [dependencies]
 # 当前实现已接入
-axum = "0.8.8"
+axum = { version = "0.8.8", features = ["ws"] }
 camino = { version = "1.1.9", features = ["serde1"] }
 clap = { version = "4.6.0", features = ["derive"] }
 config = { version = "0.15.22", default-features = false, features = ["toml"] }
 crossterm = "0.28.1"
+futures-util = "0.3.31"
 minijinja = "2.5.0"
 reqwest = { version = "0.12.12", features = ["json"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
