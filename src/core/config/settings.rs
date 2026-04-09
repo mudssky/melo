@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use camino::Utf8PathBuf;
 use serde::Deserialize;
 
@@ -10,11 +12,31 @@ pub struct DatabaseSettings {
     pub path: Utf8PathBuf,
 }
 
+/// Smart playlist 配置项。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SmartPlaylistDefinition {
+    /// 查询字符串。
+    pub query: String,
+    /// 可选描述。
+    pub description: Option<String>,
+}
+
+/// 播放列表配置。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PlaylistSettings {
+    /// 智能歌单集合。
+    #[serde(default)]
+    pub smart: BTreeMap<String, SmartPlaylistDefinition>,
+}
+
 /// Melo 的全局配置。
 #[derive(Debug, Clone, Deserialize)]
 pub struct Settings {
     /// 数据库配置。
     pub database: DatabaseSettings,
+    /// 播放列表配置。
+    #[serde(default)]
+    pub playlists: PlaylistSettings,
 }
 
 impl Default for Settings {
@@ -23,6 +45,7 @@ impl Default for Settings {
             database: DatabaseSettings {
                 path: Utf8PathBuf::from("local/melo.db"),
             },
+            playlists: PlaylistSettings::default(),
         }
     }
 }
@@ -61,6 +84,7 @@ impl Settings {
             database: DatabaseSettings {
                 path: Utf8PathBuf::from_path_buf(path).expect("测试数据库路径必须是 UTF-8"),
             },
+            playlists: PlaylistSettings::default(),
         }
     }
 }

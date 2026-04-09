@@ -4,6 +4,7 @@ use crate::core::config::settings::Settings;
 use crate::core::db::connection::connect;
 use crate::core::error::{MeloError, MeloResult};
 use crate::domain::library::metadata::SongMetadata;
+use crate::domain::playlist::query::SmartQuery;
 
 /// 扫描后返回给调用方的歌曲摘要。
 #[derive(Debug, Clone)]
@@ -240,5 +241,54 @@ impl LibraryRepository {
         )
         .optional()
         .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
+    /// 按 smart query 统计歌曲数量。
+    ///
+    /// # 参数
+    /// - `query`：结构化查询
+    ///
+    /// # 返回
+    /// - `MeloResult<usize>`：命中数量
+    pub async fn count_by_query(&self, query: &SmartQuery) -> MeloResult<usize> {
+        Ok(self.list_by_query(query).await?.len())
+    }
+
+    /// 按 smart query 列出歌曲。
+    ///
+    /// # 参数
+    /// - `query`：结构化查询
+    ///
+    /// # 返回
+    /// - `MeloResult<Vec<SongRecord>>`：命中歌曲
+    pub async fn list_by_query(&self, query: &SmartQuery) -> MeloResult<Vec<SongRecord>> {
+        let conn = connect(&self.settings)?;
+        let (where_sql, params) = crate::domain::library::query::build_song_search_sql(query);
+        let sql = format!(
+            "SELECT songs.id, songs.title, songs.lyrics, songs.lyrics_source_kind
+             FROM songs
+             LEFT JOIN artists ON artists.id = songs.artist_id
+             LEFT JOIN albums ON albums.id = songs.album_id
+             WHERE {where_sql}
+             ORDER BY songs.id ASC"
+        );
+
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+        let params = rusqlite::params_from_iter(params.iter());
+        let rows = stmt
+            .query_map(params, |row| {
+                Ok(SongRecord {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    lyrics: row.get(2)?,
+                    lyrics_source_kind: row.get(3)?,
+                })
+            })
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| MeloError::Message(err.to_string()))
     }
 }
