@@ -70,3 +70,28 @@ fn tui_song_rows_measure_cjk_width_correctly() {
     assert_eq!(rendered, "夜に…");
     assert_eq!(unicode_width::UnicodeWidthStr::width(rendered.as_str()), 5);
 }
+
+#[test]
+fn playback_label_renders_progress_window() {
+    let label =
+        melo::tui::ui::playbar::playback_label(&melo::core::model::player::PlayerSnapshot {
+            playback_state: "playing".into(),
+            current_song: Some(melo::core::model::player::NowPlayingSong {
+                song_id: 1,
+                title: "Blue Bird".into(),
+                duration_seconds: Some(212.0),
+            }),
+            queue_len: 1,
+            queue_index: Some(0),
+            has_next: false,
+            has_prev: false,
+            last_error: None,
+            version: 3,
+            position_seconds: Some(72.0),
+            position_fraction: Some(72.0 / 212.0),
+        });
+
+    assert!(label.contains("01:12"));
+    assert!(label.contains("03:32"));
+    assert!(label.contains("Blue Bird"));
+}
