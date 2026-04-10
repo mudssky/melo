@@ -107,3 +107,29 @@ fn playback_label_renders_progress_window() {
     assert!(label.contains("03:32"));
     assert!(label.contains("Blue Bird"));
 }
+
+#[test]
+fn footer_status_includes_volume_and_repeat_mode() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
+        playback_state: "playing".into(),
+        current_song: None,
+        queue_len: 2,
+        queue_index: Some(0),
+        has_next: true,
+        has_prev: false,
+        last_error: None,
+        version: 6,
+        position_seconds: Some(10.0),
+        position_fraction: Some(0.1),
+        volume_percent: 55,
+        muted: false,
+        repeat_mode: "all".into(),
+        shuffle_enabled: true,
+    });
+
+    let footer = app.footer_status();
+    assert!(footer.contains("vol=55"));
+    assert!(footer.contains("repeat=all"));
+    assert!(footer.contains("shuffle=true"));
+}

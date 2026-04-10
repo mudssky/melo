@@ -97,6 +97,33 @@ impl ApiClient {
             .map_err(|err| MeloError::Message(err.to_string()))
     }
 
+    /// 发送带 JSON 请求体的 POST 命令，并读取播放器快照。
+    ///
+    /// # 参数
+    /// - `path`：API 路径
+    /// - `body`：JSON 请求体
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：接口返回的最新快照
+    pub async fn post_json_with_body(
+        &self,
+        path: &str,
+        body: serde_json::Value,
+    ) -> MeloResult<PlayerSnapshot> {
+        let url = format!("{}{}", self.base_url, path);
+        self.client
+            .post(url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
     /// 获取当前队列快照。
     ///
     /// # 参数
@@ -204,5 +231,83 @@ impl ApiClient {
             .json()
             .await
             .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
+    /// 设置播放器音量。
+    ///
+    /// # 参数
+    /// - `value`：目标音量百分比
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn player_volume(&self, value: u8) -> MeloResult<PlayerSnapshot> {
+        self.post_json_with_body(
+            "/api/player/volume",
+            serde_json::json!({ "volume_percent": value }),
+        )
+        .await
+    }
+
+    /// 将播放器切换到静音状态。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn player_mute(&self) -> MeloResult<PlayerSnapshot> {
+        self.post_json("/api/player/mute").await
+    }
+
+    /// 取消播放器静音。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn player_unmute(&self) -> MeloResult<PlayerSnapshot> {
+        self.post_json("/api/player/unmute").await
+    }
+
+    /// 读取播放器模式快照。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn player_mode_show(&self) -> MeloResult<PlayerSnapshot> {
+        self.status().await
+    }
+
+    /// 设置播放器循环模式。
+    ///
+    /// # 参数
+    /// - `mode`：目标循环模式
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn player_mode_repeat(&self, mode: &str) -> MeloResult<PlayerSnapshot> {
+        self.post_json_with_body(
+            "/api/player/mode",
+            serde_json::json!({ "repeat_mode": mode }),
+        )
+        .await
+    }
+
+    /// 设置播放器随机播放开关。
+    ///
+    /// # 参数
+    /// - `enabled`：目标随机播放状态
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn player_mode_shuffle(&self, enabled: bool) -> MeloResult<PlayerSnapshot> {
+        self.post_json_with_body(
+            "/api/player/mode",
+            serde_json::json!({ "shuffle_enabled": enabled }),
+        )
+        .await
     }
 }

@@ -113,6 +113,25 @@ async fn queue_show_prints_snapshot_navigation_flags() {
         .stdout(predicate::str::contains("queue_len"));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn player_mode_show_prints_repeat_and_shuffle_fields() {
+    let app = melo::daemon::app::test_router().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_BASE_URL", format!("http://{addr}"));
+    cmd.arg("player").arg("mode").arg("show");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("repeat_mode"))
+        .stdout(predicate::str::contains("shuffle_enabled"));
+}
+
 #[test]
 fn db_path_command_prints_sqlite_location() {
     let mut cmd = Command::cargo_bin("melo").unwrap();

@@ -83,12 +83,21 @@ impl App {
             return format!("ERR {}: {}", error.code, error.message);
         }
 
+        let volume = if self.player.muted {
+            "muted".to_string()
+        } else {
+            self.player.volume_percent.to_string()
+        };
+
         format!(
-            "{} | queue={} | prev={} | next={}",
+            "{} | queue={} | prev={} | next={} | vol={} | repeat={} | shuffle={}",
             self.player.playback_state,
             self.player.queue_len,
             self.player.has_prev,
-            self.player.has_next
+            self.player.has_next,
+            volume,
+            self.player.repeat_mode,
+            self.player.shuffle_enabled
         )
     }
 

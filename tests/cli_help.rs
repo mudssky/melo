@@ -64,3 +64,15 @@ fn db_help_includes_maintenance_examples() {
         .stdout(predicate::str::contains("melo db doctor"))
         .stdout(predicate::str::contains("melo db backup ./backup/melo.db"));
 }
+
+#[test]
+fn cli_help_lists_structured_player_command() {
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("player"))
+        .stdout(predicate::str::contains("queue"))
+        .stdout(predicate::str::contains("playlist"));
+}

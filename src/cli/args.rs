@@ -30,6 +30,33 @@ pub enum QueueCommand {
     Play { index: usize },
 }
 
+/// 播放模式相关子命令。
+#[derive(Debug, Subcommand)]
+pub enum PlayerModeCommand {
+    #[command(about = "Print the current repeat/shuffle mode snapshot")]
+    Show,
+    #[command(about = "Set the repeat mode to off/one/all")]
+    Repeat { mode: String },
+    #[command(about = "Enable or disable shuffle with true/false or on/off")]
+    Shuffle { enabled: String },
+}
+
+/// 播放器控制相关子命令。
+#[derive(Debug, Subcommand)]
+pub enum PlayerCommand {
+    #[command(about = "Set the player volume percentage")]
+    Volume { value: u8 },
+    #[command(about = "Mute the player")]
+    Mute,
+    #[command(about = "Unmute the player")]
+    Unmute,
+    #[command(about = "Inspect or update repeat/shuffle mode")]
+    Mode {
+        #[command(subcommand)]
+        command: PlayerModeCommand,
+    },
+}
+
 /// Melo 第一层命令定义。
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -51,6 +78,14 @@ pub enum Command {
     Tui,
     #[command(about = "Run or manage the Melo daemon")]
     Daemon,
+    #[command(
+        about = "Inspect or control advanced player state",
+        long_about = "Inspect or control advanced player state such as volume, mute, repeat, and shuffle."
+    )]
+    Player {
+        #[command(subcommand)]
+        command: PlayerCommand,
+    },
     #[command(
         about = "Scan, inspect, and organize library content",
         long_about = "Scan, inspect, and organize library content without mixing one-off ingest operations with file organization previews.",

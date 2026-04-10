@@ -45,6 +45,22 @@ pub fn router(state: AppState) -> Router {
             axum::routing::post(crate::api::player::prev),
         )
         .route(
+            "/api/player/volume",
+            axum::routing::post(crate::api::player::set_volume),
+        )
+        .route(
+            "/api/player/mute",
+            axum::routing::post(crate::api::player::mute),
+        )
+        .route(
+            "/api/player/unmute",
+            axum::routing::post(crate::api::player::unmute),
+        )
+        .route(
+            "/api/player/mode",
+            axum::routing::post(crate::api::player::set_mode),
+        )
+        .route(
             "/api/queue/add",
             axum::routing::post(crate::api::queue::add),
         )

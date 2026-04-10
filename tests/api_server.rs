@@ -219,3 +219,21 @@ async fn websocket_status_contract_includes_progress_fields() {
     assert!(snapshot.position_seconds.is_some() || snapshot.position_seconds.is_none());
     assert!(snapshot.position_fraction.is_some() || snapshot.position_fraction.is_none());
 }
+
+#[tokio::test]
+async fn player_volume_endpoint_updates_snapshot_contract() {
+    let app = melo::daemon::app::test_router().await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/player/volume")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"volume_percent":55}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}

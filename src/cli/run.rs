@@ -1,6 +1,8 @@
 use clap::Parser;
 
-use crate::cli::args::{CliArgs, Command, DbCommand, QueueCommand};
+use crate::cli::args::{
+    CliArgs, Command, DbCommand, PlayerCommand, PlayerModeCommand, QueueCommand,
+};
 use crate::core::error::MeloResult;
 
 /// 解析命令行参数并交给后续子命令实现。
@@ -52,6 +54,63 @@ pub async fn run() -> MeloResult<()> {
         Some(Command::Stop) => {
             let snapshot = crate::cli::client::ApiClient::from_env()
                 .post_json("/api/player/stop")
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Player {
+            command: PlayerCommand::Volume { value },
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .player_volume(value)
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Player {
+            command: PlayerCommand::Mute,
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .player_mute()
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Player {
+            command: PlayerCommand::Unmute,
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .player_unmute()
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Player {
+            command:
+                PlayerCommand::Mode {
+                    command: PlayerModeCommand::Show,
+                },
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .player_mode_show()
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Player {
+            command:
+                PlayerCommand::Mode {
+                    command: PlayerModeCommand::Repeat { mode },
+                },
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .player_mode_repeat(&mode)
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Player {
+            command:
+                PlayerCommand::Mode {
+                    command: PlayerModeCommand::Shuffle { enabled },
+                },
+        }) => {
+            let snapshot = crate::cli::client::ApiClient::from_env()
+                .player_mode_shuffle(parse_bool_flag(&enabled))
                 .await?;
             println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
         }
@@ -122,4 +181,15 @@ pub async fn run() -> MeloResult<()> {
     }
 
     Ok(())
+}
+
+/// 解析 CLI 中的布尔开关值。
+///
+/// # 参数
+/// - `value`：原始字符串
+///
+/// # 返回
+/// - `bool`：解析后的布尔值
+fn parse_bool_flag(value: &str) -> bool {
+    matches!(value, "1" | "true" | "on" | "yes")
 }
