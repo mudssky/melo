@@ -23,7 +23,7 @@ describe("package metadata for the global dev CLI workflow", () => {
     expect(packageJson.scripts["unlink:dev"]).toBe("pnpm uninstall --global melo");
     expect(packageJson.scripts["setup:dev"]).toBe("pnpm install:dev && pnpm link:dev");
     expect(packageJson.scripts["watch:install"]).toBe(
-      "watchexec --watch src --watch bin --watch-file Cargo.toml --watch-file Cargo.lock --watch-file config.dev.toml --watch-file package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev",
+      "watchexec --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev",
     );
     expect(packageJson.scripts.qa).toBe("pnpm test:dev-cli && pnpm qa:rs");
   });

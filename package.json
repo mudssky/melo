@@ -20,7 +20,7 @@
     "link:dev": "node ./scripts/dev-cli/link-dev.cjs",
     "unlink:dev": "pnpm uninstall --global melo",
     "setup:dev": "pnpm install:dev && pnpm link:dev",
-    "watch:install": "watchexec --watch src --watch bin --watch-file Cargo.toml --watch-file Cargo.lock --watch-file config.dev.toml --watch-file package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev",
+    "watch:install": "watchexec --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev",
     "qa:rs": "pnpm format:rs && pnpm lint:rs:rtk && pnpm test:rs:rtk",
     "qa": "pnpm test:dev-cli && pnpm qa:rs"
   },
