@@ -35,5 +35,7 @@ async fn db_init_runs_seaorm_migrations() {
     assert!(tables.contains(&"playlists".to_string()));
     assert!(tables.contains(&"playlist_entries".to_string()));
     assert!(tables.contains(&"artwork_refs".to_string()));
+    assert!(tables.contains(&"player_sessions".to_string()));
+    assert!(tables.contains(&"player_session_items".to_string()));
     assert!(tables.contains(&"seaql_migrations".to_string()));
 }

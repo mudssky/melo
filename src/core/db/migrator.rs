@@ -13,8 +13,9 @@ impl MigratorTrait for Migrator {
     /// # 返回值
     /// - `Vec<Box<dyn MigrationTrait>>`：按顺序执行的迁移集合
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(
-            crate::core::db::migrations::m20260410_000001_initial::Migration,
-        )]
+        vec![
+            Box::new(crate::core::db::migrations::m20260410_000001_initial::Migration),
+            Box::new(crate::core::db::migrations::m20260410_000002_player_session::Migration),
+        ]
     }
 }
