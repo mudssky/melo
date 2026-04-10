@@ -29,22 +29,52 @@ function resolvePnpmHome(
 }
 
 /**
+ * 解析 pnpm 调用入口。
+ *
+ * @param {NodeJS.ProcessEnv} [env=process.env] 当前环境变量
+ * @param {string} [nodeExecPath=process.execPath] 当前 Node 可执行路径
+ * @returns {{command: string, prefixArgs: string[]}} pnpm 启动命令与前置参数
+ */
+function resolvePnpmCommand(env = process.env, nodeExecPath = process.execPath) {
+  if (env.npm_execpath) {
+    return {
+      command: nodeExecPath,
+      prefixArgs: [env.npm_execpath],
+    };
+  }
+
+  return {
+    command: "pnpm",
+    prefixArgs: [],
+  };
+}
+
+/**
  * 同步执行 pnpm 子命令。
  *
  * @param {string[]} args 要执行的 pnpm 参数
  * @param {{
  *   cwd?: string,
- *   env?: NodeJS.ProcessEnv,
+  *   env?: NodeJS.ProcessEnv,
+ *   nodeExecPath?: string,
  *   spawnSyncImpl?: typeof spawnSync
  * }} [options={}] 运行选项
  * @returns {{status: number | null, stdout?: string, stderr?: string}} 子进程结果
  */
 function runPnpm(args, options = {}) {
-  const result = (options.spawnSyncImpl ?? spawnSync)("pnpm", args, {
+  const invocation = resolvePnpmCommand(
+    options.env ?? process.env,
+    options.nodeExecPath ?? process.execPath,
+  );
+  const result = (options.spawnSyncImpl ?? spawnSync)(
+    invocation.command,
+    [...invocation.prefixArgs, ...args],
+    {
     cwd: options.cwd,
     env: options.env,
     encoding: "utf8",
-  });
+    },
+  );
 
   if (result.error) {
     throw result.error;
@@ -63,7 +93,8 @@ function runPnpm(args, options = {}) {
  * @param {{
  *   cwd?: string,
  *   env?: NodeJS.ProcessEnv,
- *   homeDir?: string,
+  *   homeDir?: string,
+ *   nodeExecPath?: string,
  *   platform?: NodeJS.Platform,
  *   spawnSyncImpl?: typeof spawnSync
  * }} [options={}] 运行选项
@@ -92,7 +123,8 @@ function ensureGlobalBinDir(options = {}) {
  * @param {{
  *   cwd?: string,
  *   env?: NodeJS.ProcessEnv,
- *   homeDir?: string,
+  *   homeDir?: string,
+ *   nodeExecPath?: string,
  *   platform?: NodeJS.Platform,
  *   spawnSyncImpl?: typeof spawnSync
  * }} [options={}] 运行选项
@@ -126,6 +158,7 @@ if (require.main === module) {
 
 module.exports = {
   ensureGlobalBinDir,
+  resolvePnpmCommand,
   resolvePnpmHome,
   run,
   runPnpm,
