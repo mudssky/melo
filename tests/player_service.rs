@@ -51,6 +51,10 @@ impl PlaybackBackend for FakeBackend {
     fn subscribe_runtime_events(&self) -> broadcast::Receiver<PlaybackRuntimeEvent> {
         self.runtime_tx.subscribe()
     }
+
+    fn current_position(&self) -> Option<std::time::Duration> {
+        None
+    }
 }
 
 #[test]

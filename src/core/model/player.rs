@@ -86,6 +86,10 @@ pub struct PlayerSnapshot {
     pub last_error: Option<PlayerErrorInfo>,
     /// 快照版本号，仅在有效状态变更后递增。
     pub version: u64,
+    /// 当前播放进度秒数。
+    pub position_seconds: Option<f64>,
+    /// 当前播放进度占比，范围在 `0.0..=1.0`。
+    pub position_fraction: Option<f64>,
 }
 
 impl Default for PlayerSnapshot {
@@ -106,6 +110,8 @@ impl Default for PlayerSnapshot {
             has_prev: false,
             last_error: None,
             version: 0,
+            position_seconds: None,
+            position_fraction: None,
         }
     }
 }

@@ -18,6 +18,7 @@ struct PlayerSession {
     last_error: Option<PlayerErrorInfo>,
     version: u64,
     playback_generation: u64,
+    position_seconds: Option<f64>,
 }
 
 impl Default for PlayerSession {
@@ -35,6 +36,7 @@ impl Default for PlayerSession {
             last_error: None,
             version: 0,
             playback_generation: 0,
+            position_seconds: None,
         }
     }
 }
@@ -88,6 +90,24 @@ impl PlayerService {
         tokio::spawn(async move {
             while let Ok(event) = receiver.recv().await {
                 service.handle_runtime_event(event).await;
+            }
+        });
+    }
+
+    /// 启动播放进度轮询循环。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn start_progress_loop(self: &Arc<Self>) {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_millis(500));
+        let service = Arc::clone(self);
+        tokio::spawn(async move {
+            loop {
+                ticker.tick().await;
+                let _ = service.refresh_progress_once().await;
             }
         });
     }
@@ -177,6 +197,7 @@ impl PlayerService {
         session.playback_generation = generation;
         session.playback_state = PlaybackState::Playing;
         session.last_error = None;
+        session.position_seconds = Some(0.0);
         self.publish_locked(&mut session)
     }
 
@@ -194,6 +215,9 @@ impl PlayerService {
         }
 
         self.backend.pause()?;
+        if let Some(position) = self.backend.current_position() {
+            session.position_seconds = Some(position.as_secs_f64());
+        }
         session.playback_state = PlaybackState::Paused;
         self.publish_locked(&mut session)
     }
@@ -256,6 +280,7 @@ impl PlayerService {
 
         self.backend.stop()?;
         session.playback_state = target_state;
+        session.position_seconds = session.queue.current().map(|_| 0.0);
         self.publish_locked(&mut session)
     }
 
@@ -338,6 +363,7 @@ impl PlayerService {
         session.queue.clear();
         session.playback_state = PlaybackState::Idle;
         session.last_error = None;
+        session.position_seconds = None;
         self.backend.stop()?;
         self.publish_locked(&mut session)
     }
@@ -354,6 +380,7 @@ impl PlayerService {
         let _ = session.queue.remove(index)?;
         if session.queue.is_empty() {
             session.playback_state = PlaybackState::Idle;
+            session.position_seconds = None;
         }
         session.last_error = None;
         self.publish_locked(&mut session)
@@ -386,6 +413,36 @@ impl PlayerService {
         Self::snapshot_from_session(&session)
     }
 
+    /// 读取一次后端播放进度，并在有意义变化时发布新快照。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<Option<PlayerSnapshot>>`：发生有效进度变化时返回新快照
+    pub async fn refresh_progress_once(&self) -> MeloResult<Option<PlayerSnapshot>> {
+        let mut session = self.session.lock().await;
+        if session.playback_state != PlaybackState::Playing {
+            return Ok(None);
+        }
+
+        let Some(position) = self.backend.current_position() else {
+            return Ok(None);
+        };
+        let position_seconds = position.as_secs_f64();
+        let changed = session
+            .position_seconds
+            .map(|previous| (previous - position_seconds).abs() >= 0.25)
+            .unwrap_or(true);
+        if !changed {
+            return Ok(None);
+        }
+
+        session.position_seconds = Some(position_seconds);
+        let snapshot = self.publish_locked(&mut session)?;
+        Ok(Some(snapshot))
+    }
+
     /// 处理后端推送的运行时事件。
     ///
     /// # 参数
@@ -413,6 +470,7 @@ impl PlayerService {
                         Some(_) => {
                             session.playback_state = PlaybackState::Stopped;
                             session.last_error = None;
+                            session.position_seconds = session.queue.current().map(|_| 0.0);
                             let _ = self.publish_locked(&mut session);
                             false
                         }
@@ -448,6 +506,19 @@ impl PlayerService {
             has_prev: session.queue.has_prev(),
             last_error: session.last_error.clone(),
             version: session.version,
+            position_seconds: session.position_seconds,
+            position_fraction: match (
+                session.position_seconds,
+                session
+                    .queue
+                    .current()
+                    .and_then(|item| item.duration_seconds),
+            ) {
+                (Some(position), Some(duration)) if duration > 0.0 => {
+                    Some((position / duration).min(1.0))
+                }
+                _ => None,
+            },
         }
     }
 

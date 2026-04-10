@@ -23,6 +23,8 @@ async fn tui_updates_player_snapshot_from_ws_messages() {
         has_prev: false,
         last_error: None,
         version: 1,
+        position_seconds: None,
+        position_fraction: None,
     });
 
     assert_eq!(app.player.playback_state, "playing");
@@ -44,6 +46,8 @@ async fn tui_applies_navigation_flags_and_last_error_from_snapshot() {
             message: "queue has no next item".into(),
         }),
         version: 4,
+        position_seconds: None,
+        position_fraction: None,
     });
 
     assert_eq!(app.player.playback_state, "error");

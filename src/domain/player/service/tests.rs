@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::sync::broadcast;
 
@@ -30,6 +31,7 @@ impl FakeRuntimeHandle {
 struct FakeBackend {
     commands: Arc<Mutex<Vec<PlaybackCommand>>>,
     fail_next: Arc<Mutex<bool>>,
+    current_position: Arc<Mutex<Option<Duration>>>,
     runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
 }
 
@@ -46,6 +48,7 @@ impl Default for FakeBackend {
         Self {
             commands: Arc::new(Mutex::new(Vec::new())),
             fail_next: Arc::new(Mutex::new(false)),
+            current_position: Arc::new(Mutex::new(None)),
             runtime_tx,
         }
     }
@@ -63,6 +66,17 @@ impl FakeBackend {
         FakeRuntimeHandle {
             tx: self.runtime_tx.clone(),
         }
+    }
+
+    /// 设置假后端当前汇报的播放位置。
+    ///
+    /// # 参数
+    /// - `seconds`：当前位置秒数
+    ///
+    /// # 返回值
+    /// - 无
+    fn set_position(&self, seconds: f64) {
+        *self.current_position.lock().unwrap() = Some(Duration::from_secs_f64(seconds));
     }
 }
 
@@ -104,6 +118,10 @@ impl PlaybackBackend for FakeBackend {
 
     fn subscribe_runtime_events(&self) -> broadcast::Receiver<PlaybackRuntimeEvent> {
         self.runtime_tx.subscribe()
+    }
+
+    fn current_position(&self) -> Option<Duration> {
+        *self.current_position.lock().unwrap()
     }
 }
 
@@ -204,6 +222,62 @@ async fn queue_tail_track_end_sets_stopped_without_error() {
     assert_eq!(snapshot.playback_state, PlaybackState::Stopped.as_str());
     assert_eq!(snapshot.queue_index, Some(0));
     assert!(snapshot.last_error.is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn progress_tick_updates_snapshot_position_and_fraction() {
+    let backend = Arc::new(FakeBackend::default());
+    let service = Arc::new(PlayerService::new(backend.clone()));
+    service.start_runtime_event_loop();
+    service.start_progress_loop();
+
+    service.append(item(1, "One")).await.unwrap();
+    service.play().await.unwrap();
+    backend.set_position(42.0);
+
+    tokio::time::advance(Duration::from_millis(600)).await;
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(snapshot.position_seconds, Some(42.0));
+    assert!(snapshot.position_fraction.unwrap() > 0.23);
+}
+
+#[tokio::test(start_paused = true)]
+async fn unchanged_progress_tick_does_not_bump_version() {
+    let backend = Arc::new(FakeBackend::default());
+    let service = Arc::new(PlayerService::new(backend.clone()));
+    service.start_runtime_event_loop();
+    service.start_progress_loop();
+
+    service.append(item(1, "One")).await.unwrap();
+    service.play().await.unwrap();
+    backend.set_position(5.0);
+    tokio::time::advance(Duration::from_millis(600)).await;
+    let first = service.snapshot().await;
+
+    backend.set_position(5.0);
+    tokio::time::advance(Duration::from_millis(600)).await;
+    let second = service.snapshot().await;
+
+    assert_eq!(first.position_seconds, Some(5.0));
+    assert_eq!(second.position_seconds, Some(5.0));
+    assert_eq!(first.version, second.version);
+}
+
+#[tokio::test]
+async fn stop_resets_progress_to_zero_for_current_song() {
+    let backend = Arc::new(FakeBackend::default());
+    let service = Arc::new(PlayerService::new(backend.clone()));
+
+    service.append(item(1, "One")).await.unwrap();
+    service.play().await.unwrap();
+    backend.set_position(17.0);
+    service.refresh_progress_once().await.unwrap();
+
+    let snapshot = service.stop().await.unwrap();
+    assert_eq!(snapshot.playback_state, PlaybackState::Stopped.as_str());
+    assert_eq!(snapshot.position_seconds, Some(0.0));
+    assert_eq!(snapshot.position_fraction, Some(0.0));
 }
 
 #[tokio::test]

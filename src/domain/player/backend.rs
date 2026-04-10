@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tokio::sync::broadcast;
 
 use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackRuntimeReceiver};
@@ -65,6 +67,15 @@ pub trait PlaybackBackend: Send + Sync {
     /// # 返回
     /// - `PlaybackRuntimeReceiver`：运行时事件订阅器
     fn subscribe_runtime_events(&self) -> PlaybackRuntimeReceiver;
+
+    /// 读取当前播放位置。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `Option<Duration>`：当前播放位置；未知时返回 `None`
+    fn current_position(&self) -> Option<Duration>;
 }
 
 /// 空实现后端，便于测试 API 宿主等不需要真实声音输出的场景。
@@ -95,5 +106,9 @@ impl PlaybackBackend for NoopBackend {
     fn subscribe_runtime_events(&self) -> broadcast::Receiver<PlaybackRuntimeEvent> {
         let (_tx, rx) = broadcast::channel(1);
         rx
+    }
+
+    fn current_position(&self) -> Option<Duration> {
+        None
     }
 }

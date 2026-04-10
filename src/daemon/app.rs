@@ -35,6 +35,7 @@ impl AppState {
     pub fn with_backend(backend: Arc<dyn PlaybackBackend>) -> Self {
         let player = Arc::new(PlayerService::new(backend));
         player.start_runtime_event_loop();
+        player.start_progress_loop();
         Self { player }
     }
 

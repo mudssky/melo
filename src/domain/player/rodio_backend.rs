@@ -159,6 +159,21 @@ impl PlaybackBackend for RodioBackend {
     fn subscribe_runtime_events(&self) -> PlaybackRuntimeReceiver {
         self.runtime_tx.subscribe()
     }
+
+    /// 读取当前播放器的播放位置。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `Option<Duration>`：当前播放位置
+    fn current_position(&self) -> Option<std::time::Duration> {
+        self.player
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|player| player.get_pos())
+    }
 }
 
 #[cfg(test)]
