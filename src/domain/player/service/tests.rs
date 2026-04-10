@@ -7,6 +7,7 @@ use crate::core::model::player::{PlaybackState, QueueItem};
 use crate::domain::player::backend::{PlaybackBackend, PlaybackCommand};
 use crate::domain::player::runtime::PlaybackRuntimeEvent;
 use crate::domain::player::service::PlayerService;
+use crate::domain::player::session_store::PersistedPlayerSession;
 
 #[derive(Clone)]
 struct FakeRuntimeHandle {
@@ -278,6 +279,24 @@ async fn stop_resets_progress_to_zero_for_current_song() {
     assert_eq!(snapshot.playback_state, PlaybackState::Stopped.as_str());
     assert_eq!(snapshot.position_seconds, Some(0.0));
     assert_eq!(snapshot.position_fraction, Some(0.0));
+}
+
+#[tokio::test]
+async fn restore_persisted_playing_session_downgrades_to_stopped() {
+    let service = PlayerService::new(Arc::new(FakeBackend::default()));
+    let snapshot = service
+        .restore_persisted_session(PersistedPlayerSession {
+            playback_state: PlaybackState::Playing,
+            queue_index: Some(0),
+            position_seconds: Some(48.0),
+            queue: vec![item(1, "One")],
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(snapshot.playback_state, PlaybackState::Stopped.as_str());
+    assert_eq!(snapshot.queue_index, Some(0));
+    assert_eq!(snapshot.position_seconds, Some(48.0));
 }
 
 #[tokio::test]

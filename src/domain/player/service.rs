@@ -9,6 +9,7 @@ use crate::core::model::player::{
 use crate::domain::player::backend::PlaybackBackend;
 use crate::domain::player::queue::PlayerQueue;
 use crate::domain::player::runtime::PlaybackRuntimeEvent;
+use crate::domain::player::session_store::PersistedPlayerSession;
 
 /// 播放器内部会话状态，是唯一可写的播放器真相来源。
 #[derive(Debug)]
@@ -411,6 +412,49 @@ impl PlayerService {
     pub async fn snapshot(&self) -> PlayerSnapshot {
         let session = self.session.lock().await;
         Self::snapshot_from_session(&session)
+    }
+
+    /// 导出当前播放器会话，用于持久化保存。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `PersistedPlayerSession`：可持久化的播放器会话
+    pub async fn export_persisted_session(&self) -> PersistedPlayerSession {
+        let session = self.session.lock().await;
+        PersistedPlayerSession {
+            playback_state: session.playback_state,
+            queue_index: session.queue.current_index(),
+            position_seconds: session.position_seconds,
+            queue: session.queue.items().to_vec(),
+        }
+    }
+
+    /// 恢复一份已经持久化的播放器会话。
+    ///
+    /// # 参数
+    /// - `persisted`：待恢复的播放器会话
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：恢复后的最新快照
+    pub async fn restore_persisted_session(
+        &self,
+        persisted: PersistedPlayerSession,
+    ) -> MeloResult<PlayerSnapshot> {
+        let mut session = self.session.lock().await;
+        session.queue = PlayerQueue::from_items(persisted.queue, persisted.queue_index);
+        session.position_seconds = if session.queue.current().is_some() {
+            persisted.position_seconds
+        } else {
+            None
+        };
+        session.last_error = None;
+        session.playback_state = match persisted.playback_state {
+            PlaybackState::Playing | PlaybackState::Paused => PlaybackState::Stopped,
+            other => other,
+        };
+        self.publish_locked(&mut session)
     }
 
     /// 读取一次后端播放进度，并在有意义变化时发布新快照。
