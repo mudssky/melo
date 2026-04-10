@@ -147,4 +147,39 @@ describe("link dev helper", () => {
       }),
     );
   });
+
+  it("adds pnpm home to both PATH spellings before linking", () => {
+    const spawnSyncImpl = vi
+      .fn()
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: "C:/Users/dev/AppData/Local/pnpm\r\n",
+        stderr: "",
+      })
+      .mockReturnValueOnce({ status: 0, stdout: "", stderr: "" });
+
+    const exitCode = linkDev.run({
+      cwd: "D:/coding/Projects/rust/melo",
+      env: {
+        PNPM_HOME: "C:/Users/dev/AppData/Local/pnpm",
+        PATH: "C:/Windows/System32",
+      },
+      homeDir: "C:/Users/dev",
+      platform: "win32",
+      spawnSyncImpl,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(spawnSyncImpl).toHaveBeenNthCalledWith(
+      2,
+      "pnpm",
+      ["link", "--global"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          PATH: "C:/Users/dev/AppData/Local/pnpm;C:/Windows/System32",
+          Path: "C:/Users/dev/AppData/Local/pnpm;C:/Windows/System32",
+        }),
+      }),
+    );
+  });
 });

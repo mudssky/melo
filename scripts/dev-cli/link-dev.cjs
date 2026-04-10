@@ -143,7 +143,11 @@ function run(options = {}) {
 
   const pathValue = env.Path ?? env.PATH ?? "";
   if (!pathValue.split(path.delimiter).includes(pnpmHome)) {
-    env.Path = pathValue ? `${pnpmHome}${path.delimiter}${pathValue}` : pnpmHome;
+    const nextPathValue = pathValue
+      ? `${pnpmHome}${path.delimiter}${pathValue}`
+      : pnpmHome;
+    env.Path = nextPathValue;
+    env.PATH = nextPathValue;
   }
 
   return runPnpm(["link", "--global"], {
