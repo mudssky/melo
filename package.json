@@ -2,6 +2,9 @@
   "name": "melo",
   "version": "1.0.0",
   "private": true,
+  "bin": {
+    "melo": "./bin/melo-dev.cjs"
+  },
   "scripts": {
     "lint-staged": "lint-staged",
     "format:rs": "cargo fmt --all",
@@ -12,8 +15,14 @@
     "prepare": "husky",
     "test:rs": "cargo test -q",
     "test:rs:rtk": "rtk cargo test -q",
+    "test:dev-cli": "vitest run tests/dev-cli",
+    "install:dev": "cargo install --path . --force",
+    "link:dev": "pnpm link --global",
+    "unlink:dev": "pnpm uninstall --global melo",
+    "setup:dev": "pnpm install:dev && pnpm link:dev",
+    "watch:install": "watchexec --watch src --watch bin --watch-file Cargo.toml --watch-file Cargo.lock --watch-file config.dev.toml --watch-file package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev",
     "qa:rs": "pnpm format:rs && pnpm lint:rs:rtk && pnpm test:rs:rtk",
-    "qa": "pnpm qa:rs"
+    "qa": "pnpm test:dev-cli && pnpm qa:rs"
   },
   "packageManager": "pnpm@10.26.1",
   "devDependencies": {
