@@ -8,6 +8,7 @@ use crate::core::model::player::{
 };
 use crate::domain::player::backend::PlaybackBackend;
 use crate::domain::player::queue::PlayerQueue;
+use crate::domain::player::runtime::PlaybackRuntimeEvent;
 
 /// 播放器内部会话状态，是唯一可写的播放器真相来源。
 #[derive(Debug)]
@@ -16,6 +17,7 @@ struct PlayerSession {
     queue: PlayerQueue,
     last_error: Option<PlayerErrorInfo>,
     version: u64,
+    playback_generation: u64,
 }
 
 impl Default for PlayerSession {
@@ -32,6 +34,7 @@ impl Default for PlayerSession {
             queue: PlayerQueue::default(),
             last_error: None,
             version: 0,
+            playback_generation: 0,
         }
     }
 }
@@ -70,6 +73,23 @@ impl PlayerService {
     /// - `watch::Receiver<PlayerSnapshot>`：快照订阅器
     pub fn subscribe(&self) -> watch::Receiver<PlayerSnapshot> {
         self.snapshot_tx.subscribe()
+    }
+
+    /// 启动后端运行时事件消费循环。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn start_runtime_event_loop(self: &Arc<Self>) {
+        let mut receiver = self.backend.subscribe_runtime_events();
+        let service = Arc::clone(self);
+        tokio::spawn(async move {
+            while let Ok(event) = receiver.recv().await {
+                service.handle_runtime_event(event).await;
+            }
+        });
     }
 
     /// 向队列尾部追加一首歌，并返回最新快照。
@@ -149,10 +169,12 @@ impl PlayerService {
             );
         }
 
-        if let Err(err) = self.backend.load_and_play(current_path) {
+        let generation = session.playback_generation + 1;
+        if let Err(err) = self.backend.load_and_play(current_path, generation) {
             return self.fail_locked(&mut session, "backend_unavailable", &err.to_string(), err);
         }
 
+        session.playback_generation = generation;
         session.playback_state = PlaybackState::Playing;
         session.last_error = None;
         self.publish_locked(&mut session)
@@ -362,6 +384,47 @@ impl PlayerService {
     pub async fn snapshot(&self) -> PlayerSnapshot {
         let session = self.session.lock().await;
         Self::snapshot_from_session(&session)
+    }
+
+    /// 处理后端推送的运行时事件。
+    ///
+    /// # 参数
+    /// - `event`：后端上报的运行时事件
+    ///
+    /// # 返回值
+    /// - 无
+    async fn handle_runtime_event(&self, event: PlaybackRuntimeEvent) {
+        match event {
+            PlaybackRuntimeEvent::TrackEnded { generation } => {
+                let should_advance = {
+                    let mut session = self.session.lock().await;
+                    if session.playback_state != PlaybackState::Playing {
+                        return;
+                    }
+                    if generation != session.playback_generation {
+                        return;
+                    }
+
+                    match session.queue.current_index() {
+                        Some(index) if index + 1 < session.queue.len() => {
+                            let _ = session.queue.play_index(index + 1);
+                            true
+                        }
+                        Some(_) => {
+                            session.playback_state = PlaybackState::Stopped;
+                            session.last_error = None;
+                            let _ = self.publish_locked(&mut session);
+                            false
+                        }
+                        None => return,
+                    }
+                };
+
+                if should_advance {
+                    let _ = self.play().await;
+                }
+            }
+        }
     }
 
     /// 根据内部会话生成对外快照。

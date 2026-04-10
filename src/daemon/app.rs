@@ -33,9 +33,9 @@ impl AppState {
     /// # 返回值
     /// - `Self`：应用状态
     pub fn with_backend(backend: Arc<dyn PlaybackBackend>) -> Self {
-        Self {
-            player: Arc::new(PlayerService::new(backend)),
-        }
+        let player = Arc::new(PlayerService::new(backend));
+        player.start_runtime_event_loop();
+        Self { player }
     }
 
     /// 构造测试用应用状态。

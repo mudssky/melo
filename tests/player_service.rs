@@ -1,19 +1,35 @@
 use std::sync::{Arc, Mutex};
 
 use melo::domain::player::backend::{PlaybackBackend, PlaybackCommand};
+use melo::domain::player::runtime::PlaybackRuntimeEvent;
 use melo::domain::player::service::PlayerService;
+use tokio::sync::broadcast;
 
-#[derive(Default)]
 struct FakeBackend {
     commands: Arc<Mutex<Vec<PlaybackCommand>>>,
+    runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
+}
+
+impl Default for FakeBackend {
+    fn default() -> Self {
+        let (runtime_tx, _) = broadcast::channel(16);
+        Self {
+            commands: Arc::new(Mutex::new(Vec::new())),
+            runtime_tx,
+        }
+    }
 }
 
 impl PlaybackBackend for FakeBackend {
-    fn load_and_play(&self, path: &std::path::Path) -> melo::core::error::MeloResult<()> {
-        self.commands
-            .lock()
-            .unwrap()
-            .push(PlaybackCommand::Load(path.to_path_buf()));
+    fn load_and_play(
+        &self,
+        path: &std::path::Path,
+        generation: u64,
+    ) -> melo::core::error::MeloResult<()> {
+        self.commands.lock().unwrap().push(PlaybackCommand::Load {
+            path: path.to_path_buf(),
+            generation,
+        });
         Ok(())
     }
 
@@ -30,6 +46,10 @@ impl PlaybackBackend for FakeBackend {
     fn stop(&self) -> melo::core::error::MeloResult<()> {
         self.commands.lock().unwrap().push(PlaybackCommand::Stop);
         Ok(())
+    }
+
+    fn subscribe_runtime_events(&self) -> broadcast::Receiver<PlaybackRuntimeEvent> {
+        self.runtime_tx.subscribe()
     }
 }
 

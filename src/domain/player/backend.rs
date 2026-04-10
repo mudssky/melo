@@ -1,7 +1,14 @@
+use tokio::sync::broadcast;
+
+use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackRuntimeReceiver};
+
 /// 后端接收到的播放命令。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlaybackCommand {
-    Load(std::path::PathBuf),
+    Load {
+        path: std::path::PathBuf,
+        generation: u64,
+    },
     Pause,
     Resume,
     Stop,
@@ -13,10 +20,15 @@ pub trait PlaybackBackend: Send + Sync {
     ///
     /// # 参数
     /// - `path`：待播放文件路径
+    /// - `generation`：当前播放代次，用于忽略过期结束事件
     ///
     /// # 返回
     /// - `MeloResult<()>`：执行结果
-    fn load_and_play(&self, path: &std::path::Path) -> crate::core::error::MeloResult<()>;
+    fn load_and_play(
+        &self,
+        path: &std::path::Path,
+        generation: u64,
+    ) -> crate::core::error::MeloResult<()>;
 
     /// 暂停当前播放。
     ///
@@ -44,6 +56,15 @@ pub trait PlaybackBackend: Send + Sync {
     /// # 返回
     /// - `MeloResult<()>`：执行结果
     fn stop(&self) -> crate::core::error::MeloResult<()>;
+
+    /// 订阅后端运行时事件。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `PlaybackRuntimeReceiver`：运行时事件订阅器
+    fn subscribe_runtime_events(&self) -> PlaybackRuntimeReceiver;
 }
 
 /// 空实现后端，便于测试 API 宿主等不需要真实声音输出的场景。
@@ -51,7 +72,11 @@ pub trait PlaybackBackend: Send + Sync {
 pub struct NoopBackend;
 
 impl PlaybackBackend for NoopBackend {
-    fn load_and_play(&self, _path: &std::path::Path) -> crate::core::error::MeloResult<()> {
+    fn load_and_play(
+        &self,
+        _path: &std::path::Path,
+        _generation: u64,
+    ) -> crate::core::error::MeloResult<()> {
         Ok(())
     }
 
@@ -65,5 +90,10 @@ impl PlaybackBackend for NoopBackend {
 
     fn stop(&self) -> crate::core::error::MeloResult<()> {
         Ok(())
+    }
+
+    fn subscribe_runtime_events(&self) -> broadcast::Receiver<PlaybackRuntimeEvent> {
+        let (_tx, rx) = broadcast::channel(1);
+        rx
     }
 }

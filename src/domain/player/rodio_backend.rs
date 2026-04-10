@@ -1,12 +1,16 @@
 use std::sync::Mutex;
 
+use tokio::sync::broadcast;
+
 use crate::core::error::{MeloError, MeloResult};
 use crate::domain::player::backend::PlaybackBackend;
+use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackRuntimeReceiver};
 
 /// 基于 `rodio` 的真实播放后端。
 pub struct RodioBackend {
     sink: rodio::MixerDeviceSink,
     player: Mutex<Option<rodio::Player>>,
+    runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
 }
 
 impl RodioBackend {
@@ -20,9 +24,11 @@ impl RodioBackend {
     pub fn new() -> MeloResult<Self> {
         let sink = rodio::DeviceSinkBuilder::open_default_sink()
             .map_err(|err| MeloError::Message(err.to_string()))?;
+        let (runtime_tx, _) = broadcast::channel(16);
         Ok(Self {
             sink,
             player: Mutex::new(None),
+            runtime_tx,
         })
     }
 }
@@ -35,7 +41,7 @@ impl PlaybackBackend for RodioBackend {
     ///
     /// # 返回值
     /// - `MeloResult<()>`：执行结果
-    fn load_and_play(&self, path: &std::path::Path) -> MeloResult<()> {
+    fn load_and_play(&self, path: &std::path::Path, _generation: u64) -> MeloResult<()> {
         let file = std::fs::File::open(path).map_err(|err| MeloError::Message(err.to_string()))?;
         let decoder =
             rodio::Decoder::try_from(file).map_err(|err| MeloError::Message(err.to_string()))?;
@@ -91,5 +97,16 @@ impl PlaybackBackend for RodioBackend {
             player.stop();
         }
         Ok(())
+    }
+
+    /// 订阅播放后端运行时事件。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `PlaybackRuntimeReceiver`：运行时事件订阅器
+    fn subscribe_runtime_events(&self) -> PlaybackRuntimeReceiver {
+        self.runtime_tx.subscribe()
     }
 }

@@ -1,17 +1,77 @@
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::broadcast;
+
 use crate::core::model::player::{PlaybackState, QueueItem};
 use crate::domain::player::backend::{PlaybackBackend, PlaybackCommand};
+use crate::domain::player::runtime::PlaybackRuntimeEvent;
 use crate::domain::player::service::PlayerService;
 
-#[derive(Default)]
+#[derive(Clone)]
+struct FakeRuntimeHandle {
+    tx: broadcast::Sender<PlaybackRuntimeEvent>,
+}
+
+impl FakeRuntimeHandle {
+    /// 向服务层注入一次“当前曲目自然结束”的运行时事件。
+    ///
+    /// # 参数
+    /// - `generation`：触发事件的播放代次
+    ///
+    /// # 返回值
+    /// - 无
+    fn track_ended(&self, generation: u64) {
+        let _ = self
+            .tx
+            .send(PlaybackRuntimeEvent::TrackEnded { generation });
+    }
+}
+
 struct FakeBackend {
     commands: Arc<Mutex<Vec<PlaybackCommand>>>,
     fail_next: Arc<Mutex<bool>>,
+    runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
+}
+
+impl Default for FakeBackend {
+    /// 构造带运行时事件通道的测试后端。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `Self`：测试后端
+    fn default() -> Self {
+        let (runtime_tx, _) = broadcast::channel(16);
+        Self {
+            commands: Arc::new(Mutex::new(Vec::new())),
+            fail_next: Arc::new(Mutex::new(false)),
+            runtime_tx,
+        }
+    }
+}
+
+impl FakeBackend {
+    /// 返回用于主动推送运行时事件的句柄。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `FakeRuntimeHandle`：运行时事件句柄
+    fn runtime_handle(&self) -> FakeRuntimeHandle {
+        FakeRuntimeHandle {
+            tx: self.runtime_tx.clone(),
+        }
+    }
 }
 
 impl PlaybackBackend for FakeBackend {
-    fn load_and_play(&self, path: &std::path::Path) -> crate::core::error::MeloResult<()> {
+    fn load_and_play(
+        &self,
+        path: &std::path::Path,
+        generation: u64,
+    ) -> crate::core::error::MeloResult<()> {
         let mut fail_next = self.fail_next.lock().unwrap();
         if *fail_next {
             *fail_next = false;
@@ -20,10 +80,10 @@ impl PlaybackBackend for FakeBackend {
             ));
         }
 
-        self.commands
-            .lock()
-            .unwrap()
-            .push(PlaybackCommand::Load(path.to_path_buf()));
+        self.commands.lock().unwrap().push(PlaybackCommand::Load {
+            path: path.to_path_buf(),
+            generation,
+        });
         Ok(())
     }
 
@@ -40,6 +100,10 @@ impl PlaybackBackend for FakeBackend {
     fn stop(&self) -> crate::core::error::MeloResult<()> {
         self.commands.lock().unwrap().push(PlaybackCommand::Stop);
         Ok(())
+    }
+
+    fn subscribe_runtime_events(&self) -> broadcast::Receiver<PlaybackRuntimeEvent> {
+        self.runtime_tx.subscribe()
     }
 }
 
@@ -81,6 +145,65 @@ async fn toggle_from_paused_resumes_current_track() {
         backend.commands.lock().unwrap().last(),
         Some(&PlaybackCommand::Resume)
     );
+}
+
+#[tokio::test]
+async fn runtime_track_end_auto_advances_to_next_item() {
+    let backend = Arc::new(FakeBackend::default());
+    let runtime = backend.runtime_handle();
+    let service = Arc::new(PlayerService::new(backend.clone()));
+    service.start_runtime_event_loop();
+
+    service.append(item(1, "One")).await.unwrap();
+    service.append(item(2, "Two")).await.unwrap();
+    service.play().await.unwrap();
+
+    runtime.track_ended(1);
+    tokio::task::yield_now().await;
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(snapshot.playback_state, PlaybackState::Playing.as_str());
+    assert_eq!(snapshot.queue_index, Some(1));
+    assert_eq!(snapshot.current_song.unwrap().title, "Two");
+}
+
+#[tokio::test]
+async fn stale_runtime_track_end_is_ignored_after_manual_next() {
+    let backend = Arc::new(FakeBackend::default());
+    let runtime = backend.runtime_handle();
+    let service = Arc::new(PlayerService::new(backend));
+    service.start_runtime_event_loop();
+
+    service.append(item(1, "One")).await.unwrap();
+    service.append(item(2, "Two")).await.unwrap();
+    service.play().await.unwrap();
+    service.next().await.unwrap();
+
+    runtime.track_ended(1);
+    tokio::task::yield_now().await;
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(snapshot.queue_index, Some(1));
+    assert_eq!(snapshot.current_song.unwrap().title, "Two");
+}
+
+#[tokio::test]
+async fn queue_tail_track_end_sets_stopped_without_error() {
+    let backend = Arc::new(FakeBackend::default());
+    let runtime = backend.runtime_handle();
+    let service = Arc::new(PlayerService::new(backend));
+    service.start_runtime_event_loop();
+
+    service.append(item(1, "One")).await.unwrap();
+    service.play().await.unwrap();
+
+    runtime.track_ended(1);
+    tokio::task::yield_now().await;
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(snapshot.playback_state, PlaybackState::Stopped.as_str());
+    assert_eq!(snapshot.queue_index, Some(0));
+    assert!(snapshot.last_error.is_none());
 }
 
 #[tokio::test]
