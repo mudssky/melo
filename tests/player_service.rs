@@ -84,5 +84,11 @@ async fn player_service_loads_first_queue_item_on_play() {
     assert_eq!(snapshot.playback_state, "playing");
     assert_eq!(snapshot.queue_index, Some(0));
     assert_eq!(snapshot.current_song.unwrap().title, "Blue Bird");
-    assert_eq!(backend.commands.lock().unwrap().len(), 1);
+    assert_eq!(
+        backend.commands.lock().unwrap().last(),
+        Some(&PlaybackCommand::Load {
+            path: std::path::PathBuf::from("tests/fixtures/full_test.mp3"),
+            generation: 1,
+        })
+    );
 }
