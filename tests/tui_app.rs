@@ -25,6 +25,10 @@ async fn tui_updates_player_snapshot_from_ws_messages() {
         version: 1,
         position_seconds: None,
         position_fraction: None,
+        volume_percent: 100,
+        muted: false,
+        repeat_mode: "off".into(),
+        shuffle_enabled: false,
     });
 
     assert_eq!(app.player.playback_state, "playing");
@@ -48,6 +52,10 @@ async fn tui_applies_navigation_flags_and_last_error_from_snapshot() {
         version: 4,
         position_seconds: None,
         position_fraction: None,
+        volume_percent: 100,
+        muted: false,
+        repeat_mode: "off".into(),
+        shuffle_enabled: false,
     });
 
     assert_eq!(app.player.playback_state, "error");
@@ -89,6 +97,10 @@ fn playback_label_renders_progress_window() {
             version: 3,
             position_seconds: Some(72.0),
             position_fraction: Some(72.0 / 212.0),
+            volume_percent: 100,
+            muted: false,
+            repeat_mode: "off".into(),
+            shuffle_enabled: false,
         });
 
     assert!(label.contains("01:12"));

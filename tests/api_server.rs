@@ -66,6 +66,10 @@ impl PlaybackBackend for EventedBackend {
     fn current_position(&self) -> Option<std::time::Duration> {
         None
     }
+
+    fn set_volume(&self, _factor: f32) -> melo::core::error::MeloResult<()> {
+        Ok(())
+    }
 }
 
 #[tokio::test]

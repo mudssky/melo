@@ -4,9 +4,10 @@ use tokio::sync::{Mutex, watch};
 
 use crate::core::error::{MeloError, MeloResult};
 use crate::core::model::player::{
-    NowPlayingSong, PlaybackState, PlayerErrorInfo, PlayerSnapshot, QueueItem,
+    NowPlayingSong, PlaybackState, PlayerErrorInfo, PlayerSnapshot, QueueItem, RepeatMode,
 };
 use crate::domain::player::backend::PlaybackBackend;
+use crate::domain::player::navigation::PlaybackNavigation;
 use crate::domain::player::queue::PlayerQueue;
 use crate::domain::player::runtime::PlaybackRuntimeEvent;
 use crate::domain::player::session_store::PersistedPlayerSession;
@@ -20,6 +21,11 @@ struct PlayerSession {
     version: u64,
     playback_generation: u64,
     position_seconds: Option<f64>,
+    volume_percent: u8,
+    muted: bool,
+    repeat_mode: RepeatMode,
+    shuffle_enabled: bool,
+    shuffle_seed: u64,
 }
 
 impl Default for PlayerSession {
@@ -38,6 +44,11 @@ impl Default for PlayerSession {
             version: 0,
             playback_generation: 0,
             position_seconds: None,
+            volume_percent: 100,
+            muted: false,
+            repeat_mode: RepeatMode::Off,
+            shuffle_enabled: false,
+            shuffle_seed: 0,
         }
     }
 }
@@ -111,6 +122,40 @@ impl PlayerService {
                 let _ = service.refresh_progress_once().await;
             }
         });
+    }
+
+    /// 基于当前会话构造导航器。
+    ///
+    /// # 参数
+    /// - `session`：播放器会话
+    ///
+    /// # 返回值
+    /// - `PlaybackNavigation`：导航规则计算器
+    fn navigation(session: &PlayerSession) -> PlaybackNavigation {
+        if session.shuffle_enabled {
+            PlaybackNavigation::shuffled(
+                session.queue.len(),
+                session.queue.current_index(),
+                session.shuffle_seed,
+            )
+        } else {
+            PlaybackNavigation::linear(session.queue.len(), session.queue.current_index())
+        }
+    }
+
+    /// 计算当前会话应下发给后端的音量系数。
+    ///
+    /// # 参数
+    /// - `session`：播放器会话
+    ///
+    /// # 返回值
+    /// - `f32`：后端音量系数
+    fn volume_factor(session: &PlayerSession) -> f32 {
+        if session.muted {
+            0.0
+        } else {
+            session.volume_percent as f32 / 100.0
+        }
     }
 
     /// 向队列尾部追加一首歌，并返回最新快照。
@@ -192,6 +237,9 @@ impl PlayerService {
 
         let generation = session.playback_generation + 1;
         if let Err(err) = self.backend.load_and_play(current_path, generation) {
+            return self.fail_locked(&mut session, "backend_unavailable", &err.to_string(), err);
+        }
+        if let Err(err) = self.backend.set_volume(Self::volume_factor(&session)) {
             return self.fail_locked(&mut session, "backend_unavailable", &err.to_string(), err);
         }
 
@@ -294,16 +342,15 @@ impl PlayerService {
     /// - `MeloResult<PlayerSnapshot>`：最新快照
     pub async fn next(&self) -> MeloResult<PlayerSnapshot> {
         let mut session = self.session.lock().await;
-        let next_index = match session.queue.current_index() {
-            Some(index) if index + 1 < session.queue.len() => index + 1,
-            _ => {
-                return self.fail_locked(
-                    &mut session,
-                    "queue_no_next",
-                    "queue has no next item",
-                    MeloError::Message("queue has no next item".to_string()),
-                );
-            }
+        let Some(next_index) =
+            Self::navigation(&session).next_index(session.repeat_mode, session.shuffle_enabled)
+        else {
+            return self.fail_locked(
+                &mut session,
+                "queue_no_next",
+                "queue has no next item",
+                MeloError::Message("queue has no next item".to_string()),
+            );
         };
         let _ = session.queue.play_index(next_index)?;
         drop(session);
@@ -319,16 +366,15 @@ impl PlayerService {
     /// - `MeloResult<PlayerSnapshot>`：最新快照
     pub async fn prev(&self) -> MeloResult<PlayerSnapshot> {
         let mut session = self.session.lock().await;
-        let prev_index = match session.queue.current_index() {
-            Some(index) if index > 0 => index - 1,
-            _ => {
-                return self.fail_locked(
-                    &mut session,
-                    "queue_no_prev",
-                    "queue has no previous item",
-                    MeloError::Message("queue has no previous item".to_string()),
-                );
-            }
+        let Some(prev_index) =
+            Self::navigation(&session).prev_index(session.repeat_mode, session.shuffle_enabled)
+        else {
+            return self.fail_locked(
+                &mut session,
+                "queue_no_prev",
+                "queue has no previous item",
+                MeloError::Message("queue has no previous item".to_string()),
+            );
         };
         let _ = session.queue.play_index(prev_index)?;
         drop(session);
@@ -457,6 +503,99 @@ impl PlayerService {
         self.publish_locked(&mut session)
     }
 
+    /// 设置播放器音量百分比。
+    ///
+    /// # 参数
+    /// - `volume_percent`：目标音量百分比
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：更新后的最新快照
+    pub async fn set_volume_percent(&self, volume_percent: u8) -> MeloResult<PlayerSnapshot> {
+        let mut session = self.session.lock().await;
+        let clamped = volume_percent.min(100);
+        if session.volume_percent == clamped && !session.muted {
+            return Ok(Self::snapshot_from_session(&session));
+        }
+
+        session.volume_percent = clamped;
+        session.muted = false;
+        self.backend.set_volume(Self::volume_factor(&session))?;
+        self.publish_locked(&mut session)
+    }
+
+    /// 将播放器切换到静音状态。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：更新后的最新快照
+    pub async fn mute(&self) -> MeloResult<PlayerSnapshot> {
+        let mut session = self.session.lock().await;
+        if session.muted {
+            return Ok(Self::snapshot_from_session(&session));
+        }
+
+        session.muted = true;
+        self.backend.set_volume(0.0)?;
+        self.publish_locked(&mut session)
+    }
+
+    /// 取消播放器静音。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：更新后的最新快照
+    pub async fn unmute(&self) -> MeloResult<PlayerSnapshot> {
+        let mut session = self.session.lock().await;
+        if !session.muted {
+            return Ok(Self::snapshot_from_session(&session));
+        }
+
+        session.muted = false;
+        self.backend.set_volume(Self::volume_factor(&session))?;
+        self.publish_locked(&mut session)
+    }
+
+    /// 设置循环播放模式。
+    ///
+    /// # 参数
+    /// - `repeat_mode`：目标循环模式
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：更新后的最新快照
+    pub async fn set_repeat_mode(&self, repeat_mode: RepeatMode) -> MeloResult<PlayerSnapshot> {
+        let mut session = self.session.lock().await;
+        if session.repeat_mode == repeat_mode {
+            return Ok(Self::snapshot_from_session(&session));
+        }
+
+        session.repeat_mode = repeat_mode;
+        self.publish_locked(&mut session)
+    }
+
+    /// 设置是否启用随机播放。
+    ///
+    /// # 参数
+    /// - `enabled`：是否启用随机播放
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：更新后的最新快照
+    pub async fn set_shuffle_enabled(&self, enabled: bool) -> MeloResult<PlayerSnapshot> {
+        let mut session = self.session.lock().await;
+        if session.shuffle_enabled == enabled {
+            return Ok(Self::snapshot_from_session(&session));
+        }
+
+        session.shuffle_enabled = enabled;
+        if enabled {
+            session.shuffle_seed = session.shuffle_seed.wrapping_add(1);
+        }
+        self.publish_locked(&mut session)
+    }
+
     /// 读取一次后端播放进度，并在有意义变化时发布新快照。
     ///
     /// # 参数
@@ -506,19 +645,20 @@ impl PlayerService {
                         return;
                     }
 
-                    match session.queue.current_index() {
-                        Some(index) if index + 1 < session.queue.len() => {
-                            let _ = session.queue.play_index(index + 1);
+                    match Self::navigation(&session)
+                        .track_end_index(session.repeat_mode, session.shuffle_enabled)
+                    {
+                        Some(next_index) => {
+                            let _ = session.queue.play_index(next_index);
                             true
                         }
-                        Some(_) => {
+                        None => {
                             session.playback_state = PlaybackState::Stopped;
                             session.last_error = None;
                             session.position_seconds = session.queue.current().map(|_| 0.0);
                             let _ = self.publish_locked(&mut session);
                             false
                         }
-                        None => return,
                     }
                 };
 
@@ -537,32 +677,39 @@ impl PlayerService {
     /// # 返回值
     /// - `PlayerSnapshot`：对外快照
     fn snapshot_from_session(session: &PlayerSession) -> PlayerSnapshot {
+        let current_song = session.queue.current().map(|item| NowPlayingSong {
+            song_id: item.song_id,
+            title: item.title.clone(),
+            duration_seconds: item.duration_seconds,
+        });
+        let navigation = Self::navigation(session);
         PlayerSnapshot {
             playback_state: session.playback_state.as_str().to_string(),
-            current_song: session.queue.current().map(|item| NowPlayingSong {
-                song_id: item.song_id,
-                title: item.title.clone(),
-                duration_seconds: item.duration_seconds,
-            }),
+            current_song: current_song.clone(),
             queue_len: session.queue.len(),
             queue_index: session.queue.current_index(),
-            has_next: session.queue.has_next(),
-            has_prev: session.queue.has_prev(),
+            has_next: navigation
+                .next_index(session.repeat_mode, session.shuffle_enabled)
+                .is_some(),
+            has_prev: navigation
+                .prev_index(session.repeat_mode, session.shuffle_enabled)
+                .is_some(),
             last_error: session.last_error.clone(),
             version: session.version,
             position_seconds: session.position_seconds,
             position_fraction: match (
                 session.position_seconds,
-                session
-                    .queue
-                    .current()
-                    .and_then(|item| item.duration_seconds),
+                current_song.as_ref().and_then(|item| item.duration_seconds),
             ) {
                 (Some(position), Some(duration)) if duration > 0.0 => {
                     Some((position / duration).min(1.0))
                 }
                 _ => None,
             },
+            volume_percent: session.volume_percent,
+            muted: session.muted,
+            repeat_mode: session.repeat_mode.as_str().to_string(),
+            shuffle_enabled: session.shuffle_enabled,
         }
     }
 

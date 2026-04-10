@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use tokio::sync::broadcast;
 
-use crate::core::model::player::{PlaybackState, QueueItem};
+use crate::core::model::player::{PlaybackState, QueueItem, RepeatMode};
 use crate::domain::player::backend::{PlaybackBackend, PlaybackCommand};
 use crate::domain::player::runtime::PlaybackRuntimeEvent;
 use crate::domain::player::service::PlayerService;
@@ -123,6 +123,14 @@ impl PlaybackBackend for FakeBackend {
 
     fn current_position(&self) -> Option<Duration> {
         *self.current_position.lock().unwrap()
+    }
+
+    fn set_volume(&self, factor: f32) -> crate::core::error::MeloResult<()> {
+        self.commands
+            .lock()
+            .unwrap()
+            .push(PlaybackCommand::SetVolume { factor });
+        Ok(())
     }
 }
 
@@ -297,6 +305,58 @@ async fn restore_persisted_playing_session_downgrades_to_stopped() {
     assert_eq!(snapshot.playback_state, PlaybackState::Stopped.as_str());
     assert_eq!(snapshot.queue_index, Some(0));
     assert_eq!(snapshot.position_seconds, Some(48.0));
+}
+
+#[tokio::test]
+async fn set_volume_updates_snapshot_and_backend_once() {
+    let backend = Arc::new(FakeBackend::default());
+    let service = PlayerService::new(backend.clone());
+
+    let snapshot = service.set_volume_percent(70).await.unwrap();
+    let second = service.set_volume_percent(70).await.unwrap();
+
+    assert_eq!(snapshot.volume_percent, 70);
+    assert!(!snapshot.muted);
+    assert_eq!(second.version, snapshot.version);
+    assert_eq!(
+        backend
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|cmd| matches!(cmd, PlaybackCommand::SetVolume { .. }))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn repeat_all_wraps_queue_tail_on_manual_next() {
+    let backend = Arc::new(FakeBackend::default());
+    let service = PlayerService::new(backend);
+    service.append(item(1, "One")).await.unwrap();
+    service.append(item(2, "Two")).await.unwrap();
+    service.set_repeat_mode(RepeatMode::All).await.unwrap();
+    service.play_index(1).await.unwrap();
+
+    let snapshot = service.next().await.unwrap();
+
+    assert_eq!(snapshot.queue_index, Some(0));
+    assert_eq!(snapshot.current_song.unwrap().title, "One");
+}
+
+#[tokio::test]
+async fn mute_preserves_last_non_zero_volume() {
+    let backend = Arc::new(FakeBackend::default());
+    let service = PlayerService::new(backend);
+    service.set_volume_percent(35).await.unwrap();
+
+    let muted = service.mute().await.unwrap();
+    let unmuted = service.unmute().await.unwrap();
+
+    assert!(muted.muted);
+    assert_eq!(unmuted.volume_percent, 35);
+    assert!(!unmuted.muted);
 }
 
 #[tokio::test]

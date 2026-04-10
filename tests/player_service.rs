@@ -55,6 +55,14 @@ impl PlaybackBackend for FakeBackend {
     fn current_position(&self) -> Option<std::time::Duration> {
         None
     }
+
+    fn set_volume(&self, factor: f32) -> melo::core::error::MeloResult<()> {
+        self.commands
+            .lock()
+            .unwrap()
+            .push(PlaybackCommand::SetVolume { factor });
+        Ok(())
+    }
 }
 
 #[test]
@@ -89,7 +97,12 @@ async fn player_service_loads_first_queue_item_on_play() {
     assert_eq!(snapshot.queue_index, Some(0));
     assert_eq!(snapshot.current_song.unwrap().title, "Blue Bird");
     assert_eq!(
-        backend.commands.lock().unwrap().last(),
+        backend
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|command| matches!(command, PlaybackCommand::Load { .. })),
         Some(&PlaybackCommand::Load {
             path: std::path::PathBuf::from("tests/fixtures/full_test.mp3"),
             generation: 1,

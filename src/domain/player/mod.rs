@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod navigation;
 pub mod queue;
 pub mod rodio_backend;
 pub mod runtime;

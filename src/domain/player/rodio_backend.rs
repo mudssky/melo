@@ -174,6 +174,20 @@ impl PlaybackBackend for RodioBackend {
             .as_ref()
             .map(|player| player.get_pos())
     }
+
+    /// 设置当前播放器音量。
+    ///
+    /// # 参数
+    /// - `factor`：目标音量系数
+    ///
+    /// # 返回值
+    /// - `MeloResult<()>`：执行结果
+    fn set_volume(&self, factor: f32) -> MeloResult<()> {
+        if let Some(player) = self.player.lock().unwrap().as_ref() {
+            player.set_volume(factor);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

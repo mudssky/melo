@@ -5,7 +5,7 @@ use tokio::sync::broadcast;
 use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackRuntimeReceiver};
 
 /// 后端接收到的播放命令。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlaybackCommand {
     Load {
         path: std::path::PathBuf,
@@ -14,6 +14,9 @@ pub enum PlaybackCommand {
     Pause,
     Resume,
     Stop,
+    SetVolume {
+        factor: f32,
+    },
 }
 
 /// 播放后端抽象，便于测试替身与真实音频输出解耦。
@@ -76,6 +79,15 @@ pub trait PlaybackBackend: Send + Sync {
     /// # 返回
     /// - `Option<Duration>`：当前播放位置；未知时返回 `None`
     fn current_position(&self) -> Option<Duration>;
+
+    /// 设置当前播放音量系数。
+    ///
+    /// # 参数
+    /// - `factor`：音量系数，`1.0` 为默认音量
+    ///
+    /// # 返回
+    /// - `MeloResult<()>`：执行结果
+    fn set_volume(&self, factor: f32) -> crate::core::error::MeloResult<()>;
 }
 
 /// 空实现后端，便于测试 API 宿主等不需要真实声音输出的场景。
@@ -110,5 +122,9 @@ impl PlaybackBackend for NoopBackend {
 
     fn current_position(&self) -> Option<Duration> {
         None
+    }
+
+    fn set_volume(&self, _factor: f32) -> crate::core::error::MeloResult<()> {
+        Ok(())
     }
 }

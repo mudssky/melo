@@ -34,6 +34,34 @@ impl PlaybackState {
     }
 }
 
+/// 循环播放模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub enum RepeatMode {
+    /// 不循环。
+    Off,
+    /// 单曲循环。
+    One,
+    /// 列表循环。
+    All,
+}
+
+impl RepeatMode {
+    /// 返回对外契约使用的稳定模式字符串。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `&'static str`：稳定模式名
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::One => "one",
+            Self::All => "all",
+        }
+    }
+}
+
 /// 对外暴露的播放器错误信息。
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PlayerErrorInfo {
@@ -90,6 +118,14 @@ pub struct PlayerSnapshot {
     pub position_seconds: Option<f64>,
     /// 当前播放进度占比，范围在 `0.0..=1.0`。
     pub position_fraction: Option<f64>,
+    /// 当前音量百分比。
+    pub volume_percent: u8,
+    /// 当前是否静音。
+    pub muted: bool,
+    /// 当前循环模式。
+    pub repeat_mode: String,
+    /// 当前是否开启随机播放。
+    pub shuffle_enabled: bool,
 }
 
 impl Default for PlayerSnapshot {
@@ -112,6 +148,10 @@ impl Default for PlayerSnapshot {
             version: 0,
             position_seconds: None,
             position_fraction: None,
+            volume_percent: 100,
+            muted: false,
+            repeat_mode: RepeatMode::Off.as_str().to_string(),
+            shuffle_enabled: false,
         }
     }
 }
