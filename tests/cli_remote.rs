@@ -140,3 +140,51 @@ fn db_path_command_prints_sqlite_location() {
         .success()
         .stdout(predicate::str::contains(".db"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn status_command_uses_registered_daemon_url() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    state
+        .player
+        .append(melo::core::model::player::QueueItem {
+            song_id: 99,
+            path: "tests/fixtures/full_test.mp3".into(),
+            title: "Registry Only Song".into(),
+            duration_seconds: Some(212.0),
+        })
+        .await
+        .unwrap();
+    state.player.play().await.unwrap();
+    let app = melo::daemon::server::router(state);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    std::fs::write(
+        &state_file,
+        serde_json::json!({
+            "base_url": format!("http://{addr}"),
+            "pid": std::process::id(),
+            "started_at": "2026-04-11T13:30:00Z",
+            "version": env!("CARGO_PKG_VERSION"),
+            "backend": "rodio",
+            "host": "127.0.0.1",
+            "port": addr.port()
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("status");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Registry Only Song"));
+}

@@ -74,5 +74,79 @@ fn normalize_state_file_path(path: PathBuf) -> PathBuf {
     path.join(STATE_FILE_NAME)
 }
 
+/// 根据当前环境变量解析 daemon 注册状态文件路径。
+///
+/// # 参数
+/// - 无
+///
+/// # 返回值
+/// - `MeloResult<PathBuf>`：当前用户作用域下的状态文件路径
+pub fn state_file_path() -> MeloResult<PathBuf> {
+    let explicit = std::env::var_os("MELO_DAEMON_STATE_FILE").map(PathBuf::from);
+    let local_app_data = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let home_dir = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from));
+    state_file_path_from_env(explicit, local_app_data, home_dir)
+}
+
+/// 读取当前 daemon 注册信息。
+///
+/// # 参数
+/// - 无
+///
+/// # 返回值
+/// - `MeloResult<Option<DaemonRegistration>>`：存在时返回注册信息，不存在时返回 `None`
+pub async fn load_registration() -> MeloResult<Option<DaemonRegistration>> {
+    let path = state_file_path()?;
+    let json = match tokio::fs::read_to_string(&path).await {
+        Ok(value) => value,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(MeloError::Message(err.to_string())),
+    };
+
+    serde_json::from_str(&json)
+        .map(Some)
+        .map_err(|err| MeloError::Message(err.to_string()))
+}
+
+/// 写入当前 daemon 注册信息。
+///
+/// # 参数
+/// - `registration`：待持久化的注册信息
+///
+/// # 返回值
+/// - `MeloResult<()>`：写入结果
+pub async fn store_registration(registration: &DaemonRegistration) -> MeloResult<()> {
+    let path = state_file_path()?;
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+    }
+
+    let json = serde_json::to_string_pretty(registration)
+        .map_err(|err| MeloError::Message(err.to_string()))?;
+    tokio::fs::write(path, json)
+        .await
+        .map_err(|err| MeloError::Message(err.to_string()))
+}
+
+/// 清除当前 daemon 注册信息。
+///
+/// # 参数
+/// - 无
+///
+/// # 返回值
+/// - `MeloResult<()>`：删除结果，不存在时也视为成功
+pub async fn clear_registration() -> MeloResult<()> {
+    let path = state_file_path()?;
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(MeloError::Message(err.to_string())),
+    }
+}
+
 #[cfg(test)]
 mod tests;

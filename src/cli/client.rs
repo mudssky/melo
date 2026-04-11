@@ -37,6 +37,20 @@ impl ApiClient {
         Self::new(base_url)
     }
 
+    /// 从环境变量、daemon 注册文件和默认配置中发现客户端目标。
+    ///
+    /// # 参数
+    /// - `settings`：当前配置
+    ///
+    /// # 返回值
+    /// - `MeloResult<Self>`：发现后的客户端实例
+    pub async fn from_discovery(
+        settings: &crate::core::config::settings::Settings,
+    ) -> MeloResult<Self> {
+        let base_url = crate::daemon::process::resolve_base_url(settings).await?;
+        Ok(Self::new(base_url))
+    }
+
     /// 获取播放器状态快照。
     ///
     /// # 参数

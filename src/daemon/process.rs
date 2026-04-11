@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use crate::core::config::settings::Settings;
 use crate::core::error::{MeloError, MeloResult};
 
 /// 从 daemon 基础地址推导监听地址。
@@ -38,28 +39,87 @@ pub fn daemon_command(current_exe: PathBuf, _base_url: &str) -> Command {
     command
 }
 
+/// 解析 daemon 应绑定的下一个可用地址。
+///
+/// # 参数
+/// - `host`：监听主机
+/// - `base_port`：首选基础端口
+/// - `search_limit`：向后搜索的最大偏移
+///
+/// # 返回值
+/// - `MeloResult<SocketAddr>`：首个可用地址
+pub async fn next_bind_addr(
+    host: &str,
+    base_port: u16,
+    search_limit: u16,
+) -> MeloResult<SocketAddr> {
+    for offset in 0..=search_limit {
+        let Some(port) = base_port.checked_add(offset) else {
+            break;
+        };
+
+        let candidate: SocketAddr = format!("{host}:{port}")
+            .parse()
+            .map_err(|err: std::net::AddrParseError| MeloError::Message(err.to_string()))?;
+        if tokio::net::TcpListener::bind(candidate).await.is_ok() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(MeloError::Message("daemon_port_unavailable".to_string()))
+}
+
+/// 通过显式环境变量、注册文件和默认配置解析 daemon 基础地址。
+///
+/// # 参数
+/// - `settings`：当前配置
+///
+/// # 返回值
+/// - `MeloResult<String>`：可用于访问 daemon 的基础地址
+pub async fn resolve_base_url(settings: &Settings) -> MeloResult<String> {
+    if let Ok(explicit) = std::env::var("MELO_BASE_URL") {
+        return Ok(explicit);
+    }
+
+    if let Some(registration) = crate::daemon::registry::load_registration().await? {
+        let client = crate::cli::client::ApiClient::new(registration.base_url.clone());
+        if client.health().await.is_ok() {
+            return Ok(registration.base_url);
+        }
+        crate::daemon::registry::clear_registration().await?;
+    }
+
+    Ok(format!(
+        "http://{}:{}",
+        settings.daemon.host, settings.daemon.base_port
+    ))
+}
+
 /// 确保 daemon 已经运行，必要时自动拉起并等待健康检查通过。
 ///
 /// # 参数
-/// - `base_url`：daemon 基础地址
+/// - `settings`：当前配置
 ///
 /// # 返回值
-/// - `MeloResult<()>`：确保运行结果
-pub async fn ensure_running(base_url: &str) -> MeloResult<()> {
-    let client = crate::cli::client::ApiClient::new(base_url.to_string());
+/// - `MeloResult<String>`：实际可访问的 daemon 基础地址
+pub async fn ensure_running(settings: &Settings) -> MeloResult<String> {
+    let base_url = resolve_base_url(settings).await?;
+    let client = crate::cli::client::ApiClient::new(base_url.clone());
     if client.health().await.is_ok() {
-        return Ok(());
+        return Ok(base_url);
     }
 
     let current_exe = std::env::current_exe().map_err(|err| MeloError::Message(err.to_string()))?;
-    daemon_command(current_exe, base_url)
+    daemon_command(current_exe, &base_url)
         .spawn()
         .map_err(|err| MeloError::Message(err.to_string()))?;
 
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_millis(150)).await;
+        let resolved = resolve_base_url(settings).await?;
+        let client = crate::cli::client::ApiClient::new(resolved.clone());
         if client.health().await.is_ok() {
-            return Ok(());
+            return Ok(resolved);
         }
     }
 
