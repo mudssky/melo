@@ -57,6 +57,25 @@ impl ApiClient {
             .map_err(|err| MeloError::Message(err.to_string()))
     }
 
+    /// 检查 daemon 健康状态。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `MeloResult<()>`：健康时返回 `Ok(())`
+    pub async fn health(&self) -> MeloResult<()> {
+        let url = format!("{}/api/system/health", self.base_url);
+        self.client
+            .get(url)
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+        Ok(())
+    }
+
     /// 发送一个无请求体的 POST 命令。
     ///
     /// # 参数

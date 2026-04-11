@@ -57,6 +57,18 @@ pub async fn run() -> MeloResult<()> {
                 .await?;
             println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
         }
+        Some(Command::Daemon) => {
+            let base_url = std::env::var("MELO_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
+            let listener =
+                tokio::net::TcpListener::bind(crate::daemon::process::daemon_bind_addr(&base_url)?)
+                    .await
+                    .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
+            let state = crate::daemon::app::AppState::new()?;
+            axum::serve(listener, crate::daemon::server::router(state))
+                .await
+                .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
+        }
         Some(Command::Player {
             command: PlayerCommand::Volume { value },
         }) => {
