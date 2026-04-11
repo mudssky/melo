@@ -57,3 +57,16 @@ async fn db_init_runs_seaorm_migrations() {
     assert!(playlist_columns.contains(&"expires_at".to_string()));
     assert!(playlist_columns.contains(&"last_activated_at".to_string()));
 }
+
+#[tokio::test]
+async fn db_init_creates_missing_parent_directory_before_connecting() {
+    let temp = tempdir().unwrap();
+    let db_path = temp.path().join("nested/runtime/melo.db");
+    assert!(!db_path.parent().unwrap().exists());
+
+    let settings = Settings::for_test(db_path.clone());
+    DatabaseBootstrap::new(&settings).init().await.unwrap();
+
+    assert!(db_path.parent().unwrap().exists());
+    assert!(db_path.exists());
+}

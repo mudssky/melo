@@ -134,8 +134,11 @@ impl AppState {
     ///
     /// # 返回值
     /// - `MeloResult<Self>`：生产用应用状态
-    pub fn new() -> MeloResult<Self> {
+    pub async fn new() -> MeloResult<Self> {
         let settings = Settings::load()?;
+        crate::core::db::bootstrap::DatabaseBootstrap::new(&settings)
+            .prepare_runtime_database()
+            .await?;
         let backend = factory::build_backend(&settings)?;
         let backend_name = backend.backend_name().to_string();
         let runtime = DaemonRuntimeMeta::live(&backend_name)?;
@@ -448,3 +451,6 @@ pub async fn test_router_with_settings(settings: Settings) -> axum::Router {
     let state = AppState::for_test_with_settings(settings).await;
     crate::daemon::server::router(state)
 }
+
+#[cfg(test)]
+mod tests;

@@ -8,13 +8,16 @@ const require = createRequire(import.meta.url)
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(currentDir, '../..')
 const installDev = require('../../scripts/dev-cli/install-dev.cjs') as {
-  queryProcessInfo: (pid: number, options: {
-    env?: Record<string, string>
-    homeDir?: string
-    platform: NodeJS.Platform
-    repoRoot?: string
-    spawnSyncImpl: ReturnType<typeof vi.fn>
-  }) => { pid: number; path: string } | null
+  queryProcessInfo: (
+    pid: number,
+    options: {
+      env?: Record<string, string>
+      homeDir?: string
+      platform: NodeJS.Platform
+      repoRoot?: string
+      spawnSyncImpl: ReturnType<typeof vi.fn>
+    },
+  ) => { pid: number; path: string } | null
   run: (options: {
     env: Record<string, string>
     homeDir: string

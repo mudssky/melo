@@ -141,6 +141,35 @@ fn db_path_command_prints_sqlite_location() {
         .stdout(predicate::str::contains(".db"));
 }
 
+#[test]
+fn daemon_run_reports_database_prepare_failure_when_path_is_invalid() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+    let config_path = temp.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[database]
+path = "bad<>/melo.db"
+
+[daemon]
+host = "127.0.0.1"
+base_port = 65529
+port_search_limit = 0
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_CONFIG_PATH", &config_path);
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("daemon").arg("run");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to prepare database"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn status_command_uses_registered_daemon_url() {
     let state = melo::daemon::app::AppState::for_test().await;

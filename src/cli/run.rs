@@ -353,7 +353,7 @@ async fn run_daemon_server() -> MeloResult<()> {
     let listener_addr = listener
         .local_addr()
         .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
-    let state = crate::daemon::app::AppState::new()?;
+    let state = crate::daemon::app::AppState::new().await?;
     let shutdown_state = state.clone();
     crate::daemon::registry::store_registration(&state.daemon_registration(listener_addr)).await?;
     let serve_result = axum::serve(listener, crate::daemon::server::router(state))
