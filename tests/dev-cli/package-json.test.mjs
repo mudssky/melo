@@ -19,11 +19,16 @@ describe("package metadata for the global dev CLI workflow", () => {
   it("defines the install/link/watch/qa scripts", () => {
     expect(packageJson.scripts["test:dev-cli"]).toBe("vitest run tests/dev-cli");
     expect(packageJson.scripts["install:dev"]).toBe("cargo install --path . --force");
+    expect(packageJson.scripts["install:dev:safe"]).toBe(
+      "node ./scripts/dev-cli/install-dev.cjs",
+    );
     expect(packageJson.scripts["link:dev"]).toBe("node ./scripts/dev-cli/link-dev.cjs");
     expect(packageJson.scripts["unlink:dev"]).toBe("pnpm uninstall --global melo");
-    expect(packageJson.scripts["setup:dev"]).toBe("pnpm install:dev && pnpm link:dev");
+    expect(packageJson.scripts["setup:dev"]).toBe(
+      "pnpm install:dev:safe && pnpm link:dev",
+    );
     expect(packageJson.scripts["watch:install"]).toBe(
-      "watchexec --postpone --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev",
+      "watchexec --postpone --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev:safe",
     );
     expect(packageJson.scripts.qa).toBe("pnpm test:dev-cli && pnpm qa:rs");
   });

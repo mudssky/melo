@@ -17,10 +17,11 @@
     "test:rs:rtk": "rtk cargo test -q",
     "test:dev-cli": "vitest run tests/dev-cli",
     "install:dev": "cargo install --path . --force",
+    "install:dev:safe": "node ./scripts/dev-cli/install-dev.cjs",
     "link:dev": "node ./scripts/dev-cli/link-dev.cjs",
     "unlink:dev": "pnpm uninstall --global melo",
-    "setup:dev": "pnpm install:dev && pnpm link:dev",
-    "watch:install": "watchexec --postpone --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev",
+    "setup:dev": "pnpm install:dev:safe && pnpm link:dev",
+    "watch:install": "watchexec --postpone --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev:safe",
     "qa:rs": "pnpm format:rs && pnpm lint:rs:rtk && pnpm test:rs:rtk",
     "qa": "pnpm test:dev-cli && pnpm qa:rs"
   },
