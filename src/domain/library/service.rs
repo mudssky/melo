@@ -72,10 +72,7 @@ impl LibraryService {
                 .filter(|entry| entry.file_type().is_file())
             {
                 let path = entry.path();
-                if !matches!(
-                    path.extension().and_then(|ext| ext.to_str()),
-                    Some("flac" | "mp3" | "ogg" | "wav")
-                ) {
+                if !crate::domain::open::formats::is_supported_audio_path(path) {
                     continue;
                 }
 

@@ -101,17 +101,28 @@ impl ApiClient {
     /// - `MeloResult<OpenResponse>`：打开结果
     pub async fn open_target(&self, target: String, mode: &str) -> MeloResult<OpenResponse> {
         let url = format!("{}/api/open", self.base_url);
-        self.client
+        let response = self
+            .client
             .post(url)
             .json(&serde_json::json!({ "target": target, "mode": mode }))
             .send()
             .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+
+        let status = response.status();
+        let body = response
+            .text()
             .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+        if !status.is_success() {
+            return Err(MeloError::Message(if body.is_empty() {
+                format!("open_request_failed:{status}")
+            } else {
+                body
+            }));
+        }
+
+        serde_json::from_str(&body).map_err(|err| MeloError::Message(err.to_string()))
     }
 
     /// 发送一个无请求体的 POST 命令。

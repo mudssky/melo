@@ -188,3 +188,22 @@ async fn status_command_uses_registered_daemon_url() {
         .success()
         .stdout(predicate::str::contains("Registry Only Song"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn explicit_open_command_prints_stable_error_body() {
+    let app = melo::daemon::app::test_router().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_BASE_URL", format!("http://{addr}"));
+    cmd.arg("cover.jpg");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("unsupported_open_format"));
+}

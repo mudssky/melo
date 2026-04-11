@@ -173,7 +173,7 @@ pub fn classify_target(path: &Path) -> MeloResult<OpenTarget> {
         return Ok(OpenTarget::Directory(path.to_path_buf()));
     }
 
-    if is_supported_audio_path(path) {
+    if crate::domain::open::formats::is_supported_audio_path(path) {
         return Ok(OpenTarget::AudioFile(path.to_path_buf()));
     }
 
@@ -195,25 +195,8 @@ pub fn discover_audio_paths(root: &Path, max_depth: usize) -> MeloResult<Vec<Pat
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
         .map(|entry| entry.into_path())
-        .filter(|path| is_supported_audio_path(path))
+        .filter(|path| crate::domain::open::formats::is_supported_audio_path(path))
         .collect())
-}
-
-/// 判断给定路径是否是支持的音频文件。
-///
-/// # 参数
-/// - `path`：待判断路径
-///
-/// # 返回值
-/// - `bool`：是否支持
-fn is_supported_audio_path(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_ascii_lowercase())
-            .as_deref(),
-        Some("flac" | "mp3" | "ogg" | "wav")
-    )
 }
 
 #[cfg(test)]
