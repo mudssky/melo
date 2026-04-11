@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::core::config::settings::{PlayerSettings, Settings};
 use crate::core::error::{MeloError, MeloResult};
 use crate::domain::player::backend::PlaybackBackend;
+use crate::domain::player::mpv_backend::{MpvBackend, mpv_exists};
 use crate::domain::player::rodio_backend::RodioBackend;
 
 /// 配置解析后的具体后端选择。
@@ -53,9 +54,9 @@ pub fn resolve_backend_choice(
 /// # 返回值
 /// - `MeloResult<Arc<dyn PlaybackBackend>>`：可用的播放后端实例
 pub fn build_backend(settings: &Settings) -> MeloResult<Arc<dyn PlaybackBackend>> {
-    match resolve_backend_choice(&settings.player, || false)? {
+    match resolve_backend_choice(&settings.player, || mpv_exists(&settings.player.mpv.path))? {
         BackendChoice::Rodio => Ok(Arc::new(RodioBackend::new()?)),
-        BackendChoice::Mpv => Err(MeloError::Message("mpv_backend_unavailable".to_string())),
+        BackendChoice::Mpv => Ok(Arc::new(MpvBackend::new(settings.clone())?)),
     }
 }
 

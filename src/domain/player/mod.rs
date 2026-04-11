@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod factory;
+pub mod mpv_backend;
 pub mod navigation;
 pub mod queue;
 pub mod rodio_backend;
