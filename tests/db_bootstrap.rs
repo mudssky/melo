@@ -38,4 +38,22 @@ async fn db_init_runs_seaorm_migrations() {
     assert!(tables.contains(&"player_sessions".to_string()));
     assert!(tables.contains(&"player_session_items".to_string()));
     assert!(tables.contains(&"seaql_migrations".to_string()));
+
+    let playlist_columns = connection
+        .query_all(Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "PRAGMA table_info(playlists)".to_string(),
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.try_get::<String>("", "name").unwrap())
+        .collect::<Vec<_>>();
+
+    assert!(playlist_columns.contains(&"kind".to_string()));
+    assert!(playlist_columns.contains(&"source_kind".to_string()));
+    assert!(playlist_columns.contains(&"source_key".to_string()));
+    assert!(playlist_columns.contains(&"visible".to_string()));
+    assert!(playlist_columns.contains(&"expires_at".to_string()));
+    assert!(playlist_columns.contains(&"last_activated_at".to_string()));
 }

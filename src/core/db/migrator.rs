@@ -16,6 +16,7 @@ impl MigratorTrait for Migrator {
         vec![
             Box::new(crate::core::db::migrations::m20260410_000001_initial::Migration),
             Box::new(crate::core::db::migrations::m20260410_000002_player_session::Migration),
+            Box::new(crate::core::db::migrations::m20260411_000003_ephemeral_playlists::Migration),
         ]
     }
 }

@@ -8,6 +8,12 @@ pub struct Model {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,
+    pub kind: String,
+    pub source_kind: Option<String>,
+    pub source_key: Option<String>,
+    pub visible: bool,
+    pub expires_at: Option<String>,
+    pub last_activated_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
