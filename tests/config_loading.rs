@@ -57,3 +57,45 @@ fn config_example_toml_parses_successfully() {
     assert_eq!(settings.player.volume, 100);
     assert_eq!(settings.playlists.ephemeral.default_ttl_seconds, 0);
 }
+
+#[test]
+fn settings_load_daemon_backend_and_tui_fields() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[database]
+path = "local/melo.db"
+
+[daemon]
+host = "127.0.0.1"
+base_port = 38123
+port_search_limit = 12
+
+[player]
+backend = "auto"
+volume = 70
+restore_last_session = true
+resume_after_restore = false
+
+[player.mpv]
+path = "C:/Tools/mpv.exe"
+ipc_dir = "auto"
+
+[tui]
+show_footer_hints = false
+"#,
+    )
+    .unwrap();
+
+    let settings = Settings::load_from_path(&path).unwrap();
+
+    assert_eq!(settings.daemon.host, "127.0.0.1");
+    assert_eq!(settings.daemon.base_port, 38123);
+    assert_eq!(settings.daemon.port_search_limit, 12);
+    assert_eq!(settings.player.backend, "auto");
+    assert_eq!(settings.player.mpv.path, "C:/Tools/mpv.exe");
+    assert_eq!(settings.player.mpv.ipc_dir, "auto");
+    assert!(!settings.tui.show_footer_hints);
+}

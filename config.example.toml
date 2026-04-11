@@ -4,13 +4,31 @@
 # SQLite 数据库文件路径。
 path = "local/melo.db"
 
+[daemon]
+# Daemon 默认监听主机。
+host = "127.0.0.1"
+# Daemon 首选基础端口。
+base_port = 38123
+# 首选端口被占用时的自动避让次数。
+port_search_limit = 32
+
 [player]
+# 后端选择：`auto`、`rodio`、`mpv`。
+backend = "auto"
 # 无恢复会话时的默认音量。
 volume = 100
 # 是否恢复上一次 daemon 会话。
 restore_last_session = true
 # 恢复后是否自动继续播放。
 resume_after_restore = false
+
+[player.mpv]
+# `mpv` 可执行文件路径。
+path = "mpv"
+# IPC 目录。`auto` 表示自动选择。
+ipc_dir = "auto"
+# 额外传给 `mpv` 的命令行参数。
+extra_args = []
 
 [open]
 # 裸 `melo` 是否先尝试扫描当前目录。
@@ -33,6 +51,10 @@ path_file = false
 path_dir = true
 # 当前目录临时歌单是否出现在常规列表中。
 cwd_dir = true
+
+[tui]
+# 是否显示底部快捷键提示。
+show_footer_hints = true
 
 [library.organize]
 # 文件整理的基础目录。

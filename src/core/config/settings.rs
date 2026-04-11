@@ -20,24 +20,90 @@ impl Default for DatabaseSettings {
     }
 }
 
+/// Daemon 相关配置。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct DaemonSettings {
+    /// Daemon 绑定主机。
+    pub host: String,
+    /// 首选基础端口。
+    pub base_port: u16,
+    /// 高位端口自动避让次数。
+    pub port_search_limit: u16,
+}
+
+impl Default for DaemonSettings {
+    fn default() -> Self {
+        Self {
+            host: "127.0.0.1".to_string(),
+            base_port: 38123,
+            port_search_limit: 32,
+        }
+    }
+}
+
+/// MPV 后端相关配置。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct MpvSettings {
+    /// `mpv` 可执行文件路径。
+    pub path: String,
+    /// IPC 路径目录或特殊值。
+    pub ipc_dir: String,
+    /// 追加给 `mpv` 的额外参数。
+    pub extra_args: Vec<String>,
+}
+
+impl Default for MpvSettings {
+    fn default() -> Self {
+        Self {
+            path: "mpv".to_string(),
+            ipc_dir: "auto".to_string(),
+            extra_args: Vec::new(),
+        }
+    }
+}
+
 /// 播放器相关配置。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct PlayerSettings {
+    /// 播放后端选择。
+    pub backend: String,
     /// 默认音量。
     pub volume: u8,
     /// 是否恢复上一次 daemon 会话。
     pub restore_last_session: bool,
     /// 恢复后是否自动继续播放。
     pub resume_after_restore: bool,
+    /// MPV 后端配置。
+    pub mpv: MpvSettings,
 }
 
 impl Default for PlayerSettings {
     fn default() -> Self {
         Self {
+            backend: "auto".to_string(),
             volume: 100,
             restore_last_session: true,
             resume_after_restore: false,
+            mpv: MpvSettings::default(),
+        }
+    }
+}
+
+/// TUI 相关配置。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct TuiSettings {
+    /// 是否显示底部帮助提示。
+    pub show_footer_hints: bool,
+}
+
+impl Default for TuiSettings {
+    fn default() -> Self {
+        Self {
+            show_footer_hints: true,
         }
     }
 }
@@ -164,6 +230,9 @@ pub struct LibrarySettings {
 pub struct Settings {
     /// 数据库配置。
     pub database: DatabaseSettings,
+    /// Daemon 配置。
+    #[serde(default)]
+    pub daemon: DaemonSettings,
     /// 播放器配置。
     #[serde(default)]
     pub player: PlayerSettings,
@@ -176,6 +245,9 @@ pub struct Settings {
     /// 播放列表配置。
     #[serde(default)]
     pub playlists: PlaylistSettings,
+    /// TUI 配置。
+    #[serde(default)]
+    pub tui: TuiSettings,
 }
 
 impl Settings {
@@ -203,11 +275,25 @@ impl Settings {
             .add_source(config::File::from(path.as_ref()).required(false))
             .set_default("database.path", "local/melo.db")
             .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("daemon.host", "127.0.0.1")
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("daemon.base_port", 38123)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("daemon.port_search_limit", 32)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("player.backend", "auto")
+            .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("player.volume", 100)
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("player.restore_last_session", true)
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("player.resume_after_restore", false)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("player.mpv.path", "mpv")
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("player.mpv.ipc_dir", "auto")
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("player.mpv.extra_args", Vec::<String>::new())
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("open.scan_current_dir", true)
             .map_err(|err| MeloError::Message(err.to_string()))?
@@ -218,6 +304,8 @@ impl Settings {
             .set_default("open.background_jobs", 4)
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("playlists.ephemeral.default_ttl_seconds", 0)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("tui.show_footer_hints", true)
             .map_err(|err| MeloError::Message(err.to_string()))?;
 
         builder
