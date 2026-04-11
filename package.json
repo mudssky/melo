@@ -8,12 +8,15 @@
   "scripts": {
     "lint-staged": "lint-staged",
     "format:rs": "cargo fmt --all",
+    "format:ts": "biome format --write .",
     "format:rs:check": "cargo fmt --all --check",
+    "check:ts": "biome check --write .",
     "lint:rs": "cargo clippy --no-deps -- -D warnings",
     "lint:rs:fix": "cargo clippy --no-deps --fix --allow-dirty -- -D warnings",
     "lint:rs:ci": "cargo clippy --all-targets --no-deps -j 8 -- -D warnings",
     "lint:rs:full": "cargo clippy -j 8 --all-targets --all-features -- -D warnings",
     "lint:rs:rtk": "rtk cargo clippy --no-deps -- -D warnings",
+    "typecheck": "tsc --noEmit",
     "precommit:rs": "pnpm format:rs:check && pnpm lint:rs",
     "prepare": "husky",
     "test:rs": "cargo test -q",
@@ -27,10 +30,12 @@
     "setup:dev": "pnpm install:dev:safe && pnpm link:dev",
     "watch:install": "watchexec --postpone --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev:safe",
     "qa:rs": "pnpm format:rs && pnpm lint:rs:rtk && pnpm test:rs:rtk",
-    "qa": "concurrently --prefix none --group --kill-others-on-fail \"pnpm test:ts\" \"pnpm qa:rs\""
+    "qa:ts": "pnpm check:ts && pnpm test:ts",
+    "qa": "concurrently --prefix none --group --kill-others-on-fail \"pnpm qa:ts\" \"pnpm qa:rs\""
   },
   "packageManager": "pnpm@10.26.1",
   "devDependencies": {
+    "@biomejs/biome": "^2.4.11",
     "concurrently": "^9.2.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
