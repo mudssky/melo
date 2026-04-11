@@ -19,6 +19,7 @@
     "test:rs": "cargo test -q",
     "test:rs:rtk": "rtk cargo test -q",
     "test:dev-cli": "vitest run tests/dev-cli",
+    "test:ts": "vitest run",
     "install:dev": "cargo install --path . --force",
     "install:dev:safe": "node ./scripts/dev-cli/install-dev.cjs",
     "link:dev": "node ./scripts/dev-cli/link-dev.cjs",
@@ -26,10 +27,11 @@
     "setup:dev": "pnpm install:dev:safe && pnpm link:dev",
     "watch:install": "watchexec --postpone --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev:safe",
     "qa:rs": "pnpm format:rs && pnpm lint:rs:rtk && pnpm test:rs:rtk",
-    "qa": "pnpm test:dev-cli && pnpm qa:rs"
+    "qa": "concurrently --prefix none --group \"pnpm test:ts\" \"pnpm qa:rs\""
   },
   "packageManager": "pnpm@10.26.1",
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "rumdl": "^0.1.67",

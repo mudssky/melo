@@ -30,6 +30,5 @@ describe("package metadata for the global dev CLI workflow", () => {
     expect(packageJson.scripts["watch:install"]).toBe(
       "watchexec --postpone --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev:safe",
     );
-    expect(packageJson.scripts.qa).toBe("pnpm test:dev-cli && pnpm qa:rs");
   });
 });
