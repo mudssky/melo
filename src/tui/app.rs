@@ -23,6 +23,8 @@ pub struct App {
     pub active_view: ActiveView,
     /// 当前焦点区域。
     pub focus: FocusArea,
+    /// 启动来源标签。
+    pub source_label: Option<String>,
 }
 
 impl App {
@@ -38,6 +40,7 @@ impl App {
             player: PlayerSnapshot::default(),
             active_view: ActiveView::Songs,
             focus: FocusArea::Content,
+            source_label: None,
         }
     }
 
@@ -71,6 +74,17 @@ impl App {
         self.player = snapshot;
     }
 
+    /// 设置当前启动来源标签。
+    ///
+    /// # 参数
+    /// - `source_label`：来源标签
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn set_source_label(&mut self, source_label: impl Into<String>) {
+        self.source_label = Some(source_label.into());
+    }
+
     /// 根据当前快照生成底部状态栏文案。
     ///
     /// # 参数
@@ -89,7 +103,7 @@ impl App {
             self.player.volume_percent.to_string()
         };
 
-        format!(
+        let mut status = format!(
             "{} | queue={} | prev={} | next={} | vol={} | repeat={} | shuffle={}",
             self.player.playback_state,
             self.player.queue_len,
@@ -98,7 +112,14 @@ impl App {
             volume,
             self.player.repeat_mode,
             self.player.shuffle_enabled
-        )
+        );
+
+        if let Some(source_label) = &self.source_label {
+            status.push_str(" | source=");
+            status.push_str(source_label);
+        }
+
+        status
     }
 
     /// 计算当前屏幕布局。

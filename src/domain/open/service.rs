@@ -27,7 +27,7 @@ pub struct OpenRequest {
 }
 
 /// daemon 直接打开响应。
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct OpenResponse {
     /// 最新播放器快照。
     pub snapshot: PlayerSnapshot,

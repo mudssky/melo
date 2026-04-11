@@ -1,5 +1,6 @@
 use crate::core::error::{MeloError, MeloResult};
 use crate::core::model::player::PlayerSnapshot;
+use crate::domain::open::service::OpenResponse;
 
 /// 命令行客户端对 daemon HTTP API 的最小封装。
 #[derive(Clone)]
@@ -74,6 +75,29 @@ impl ApiClient {
             .error_for_status()
             .map_err(|err| MeloError::Message(err.to_string()))?;
         Ok(())
+    }
+
+    /// 请求 daemon 直接打开一个目标。
+    ///
+    /// # 参数
+    /// - `target`：目标路径
+    /// - `mode`：触发模式
+    ///
+    /// # 返回
+    /// - `MeloResult<OpenResponse>`：打开结果
+    pub async fn open_target(&self, target: String, mode: &str) -> MeloResult<OpenResponse> {
+        let url = format!("{}/api/open", self.base_url);
+        self.client
+            .post(url)
+            .json(&serde_json::json!({ "target": target, "mode": mode }))
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
     }
 
     /// 发送一个无请求体的 POST 命令。

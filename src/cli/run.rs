@@ -13,8 +13,55 @@ use crate::core::error::MeloResult;
 /// # 返回
 /// - `MeloResult<()>`：解析成功时返回 `Ok(())`
 pub async fn run() -> MeloResult<()> {
-    let args = CliArgs::parse();
+    let raw_args = std::env::args_os().collect::<Vec<_>>();
+    match crate::cli::dispatch::dispatch_args(&raw_args) {
+        crate::cli::dispatch::Dispatch::DefaultLaunch => {
+            let base_url = daemon_base_url();
+            crate::daemon::process::ensure_running(&base_url).await?;
 
+            let settings = crate::core::config::settings::Settings::load()?;
+            let source_label = if settings.open.scan_current_dir {
+                let cwd = std::env::current_dir()
+                    .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
+                crate::cli::client::ApiClient::new(base_url.clone())
+                    .open_target(cwd.to_string_lossy().into_owned(), "cwd_dir")
+                    .await
+                    .ok()
+                    .map(|opened| opened.source_label)
+            } else {
+                None
+            };
+
+            return crate::tui::run::start(base_url, source_label).await;
+        }
+        crate::cli::dispatch::Dispatch::DirectOpen(target) => {
+            let base_url = daemon_base_url();
+            crate::daemon::process::ensure_running(&base_url).await?;
+            let mode = if std::path::Path::new(&target).is_dir() {
+                "path_dir"
+            } else {
+                "path_file"
+            };
+            let opened = crate::cli::client::ApiClient::new(base_url.clone())
+                .open_target(target, mode)
+                .await?;
+            return crate::tui::run::start(base_url, Some(opened.source_label)).await;
+        }
+        crate::cli::dispatch::Dispatch::Clap => {}
+    }
+
+    let args = CliArgs::parse_from(raw_args);
+    run_clap(args).await
+}
+
+/// 执行标准 Clap 子命令分发。
+///
+/// # 参数
+/// - `args`：解析后的 CLI 参数
+///
+/// # 返回
+/// - `MeloResult<()>`：执行结果
+async fn run_clap(args: CliArgs) -> MeloResult<()> {
     match args.command {
         Some(Command::Status) => {
             let client = crate::cli::client::ApiClient::from_env();
@@ -57,9 +104,13 @@ pub async fn run() -> MeloResult<()> {
                 .await?;
             println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
         }
+        Some(Command::Tui) => {
+            let base_url = daemon_base_url();
+            crate::daemon::process::ensure_running(&base_url).await?;
+            crate::tui::run::start(base_url, None).await?;
+        }
         Some(Command::Daemon) => {
-            let base_url = std::env::var("MELO_BASE_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
+            let base_url = daemon_base_url();
             let listener =
                 tokio::net::TcpListener::bind(crate::daemon::process::daemon_bind_addr(&base_url)?)
                     .await
@@ -193,6 +244,17 @@ pub async fn run() -> MeloResult<()> {
     }
 
     Ok(())
+}
+
+/// 返回 daemon HTTP 基地址。
+///
+/// # 参数
+/// - 无
+///
+/// # 返回
+/// - `String`：daemon HTTP 基地址
+fn daemon_base_url() -> String {
+    std::env::var("MELO_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".to_string())
 }
 
 /// 解析 CLI 中的布尔开关值。
