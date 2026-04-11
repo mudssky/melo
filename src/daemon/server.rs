@@ -17,6 +17,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::get(crate::api::system::health),
         )
         .route(
+            "/api/system/status",
+            axum::routing::get(crate::api::system::status),
+        )
+        .route(
             "/api/system/shutdown",
             axum::routing::post(crate::api::system::shutdown),
         )

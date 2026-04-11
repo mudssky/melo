@@ -26,17 +26,31 @@ pub fn daemon_bind_addr(base_url: &str) -> MeloResult<SocketAddr> {
 ///
 /// # 参数
 /// - `current_exe`：当前可执行文件路径
-/// - `_base_url`：daemon 基础地址
 ///
 /// # 返回值
 /// - `Command`：已配置好的子进程命令
-pub fn daemon_command(current_exe: PathBuf, _base_url: &str) -> Command {
+pub fn daemon_command(current_exe: PathBuf) -> Command {
     let mut command = Command::new(current_exe);
-    command.arg("daemon");
+    command.arg("daemon").arg("run");
     command.stdin(Stdio::null());
     command.stdout(Stdio::null());
     command.stderr(Stdio::null());
     command
+}
+
+/// 后台拉起 daemon 子进程。
+///
+/// # 参数
+/// - 无
+///
+/// # 返回值
+/// - `MeloResult<()>`：启动结果
+pub fn spawn_background_daemon() -> MeloResult<()> {
+    let current_exe = std::env::current_exe().map_err(|err| MeloError::Message(err.to_string()))?;
+    daemon_command(current_exe)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| MeloError::Message(err.to_string()))
 }
 
 /// 解析 daemon 应绑定的下一个可用地址。
@@ -109,10 +123,7 @@ pub async fn ensure_running(settings: &Settings) -> MeloResult<String> {
         return Ok(base_url);
     }
 
-    let current_exe = std::env::current_exe().map_err(|err| MeloError::Message(err.to_string()))?;
-    daemon_command(current_exe, &base_url)
-        .spawn()
-        .map_err(|err| MeloError::Message(err.to_string()))?;
+    spawn_background_daemon()?;
 
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_millis(150)).await;

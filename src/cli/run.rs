@@ -86,7 +86,10 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
             println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
         }
         Some(Command::Play) => {
-            let snapshot = daemon_client().await?.post_json("/api/player/play").await?;
+            let snapshot = daemon_client_with_autostart()
+                .await?
+                .post_json("/api/player/play")
+                .await?;
             println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
         }
         Some(Command::Pause) => {
@@ -129,66 +132,12 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
             .await?;
         }
         Some(Command::Daemon {
-            command: Some(DaemonCommand::Status),
+            command: Some(DaemonCommand::Run),
         }) => {
-            let registration = crate::daemon::registry::load_registration()
-                .await?
-                .ok_or_else(|| {
-                    crate::core::error::MeloError::Message("daemon_not_running".to_string())
-                })?;
-            println!("{}", serde_json::to_string_pretty(&registration).unwrap());
+            run_daemon_server().await?;
         }
-        Some(Command::Daemon {
-            command: Some(DaemonCommand::Stop),
-        }) => {
-            daemon_client()
-                .await?
-                .post_no_body("/api/system/shutdown")
-                .await?;
-            println!("stopped");
-        }
-        Some(Command::Daemon { command: None }) => {
-            let settings = crate::core::config::settings::Settings::load()?;
-            let bind_addr = if let Ok(base_url) = std::env::var("MELO_BASE_URL") {
-                crate::daemon::process::daemon_bind_addr(&base_url)?
-            } else {
-                crate::daemon::process::next_bind_addr(
-                    &settings.daemon.host,
-                    settings.daemon.base_port,
-                    settings.daemon.port_search_limit,
-                )
-                .await?
-            };
-            let listener = tokio::net::TcpListener::bind(bind_addr)
-                .await
-                .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
-            let listener_addr = listener
-                .local_addr()
-                .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
-            let state = crate::daemon::app::AppState::new()?;
-            let backend_name = state.player.snapshot().await.backend_name;
-            let shutdown_state = state.clone();
-            crate::daemon::registry::store_registration(
-                &crate::daemon::registry::DaemonRegistration {
-                    base_url: format!("http://{listener_addr}"),
-                    pid: std::process::id(),
-                    started_at: daemon_started_at_text(),
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    backend: backend_name,
-                    host: listener_addr.ip().to_string(),
-                    port: listener_addr.port(),
-                },
-            )
-            .await?;
-            let serve_result = axum::serve(listener, crate::daemon::server::router(state))
-                .with_graceful_shutdown(async move {
-                    shutdown_state.wait_for_shutdown().await;
-                })
-                .await
-                .map_err(|err| crate::core::error::MeloError::Message(err.to_string()));
-            let clear_result = crate::daemon::registry::clear_registration().await;
-            serve_result?;
-            clear_result?;
+        Some(Command::Daemon { command }) => {
+            crate::cli::daemon::run_daemon_command(command).await?;
         }
         Some(Command::Player {
             command: PlayerCommand::Volume { value },
@@ -335,18 +284,64 @@ async fn daemon_client() -> MeloResult<crate::cli::client::ApiClient> {
     crate::cli::client::ApiClient::from_discovery(&settings).await
 }
 
-/// 生成 daemon 注册信息里的启动时间字符串。
+/// 构造一个允许自动拉起 daemon 的客户端。
 ///
 /// # 参数
 /// - 无
 ///
 /// # 返回值
-/// - `String`：当前 UTC 秒级时间戳字符串
-fn daemon_started_at_text() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
-        .unwrap_or_else(|_| "0".to_string())
+/// - `MeloResult<crate::cli::client::ApiClient>`：自动拉起后的客户端
+async fn daemon_client_with_autostart() -> MeloResult<crate::cli::client::ApiClient> {
+    if let Ok(base_url) = std::env::var("MELO_BASE_URL") {
+        let client = crate::cli::client::ApiClient::new(base_url.clone());
+        if client.health().await.is_ok() {
+            return Ok(client);
+        }
+    }
+
+    let settings = crate::core::config::settings::Settings::load()?;
+    let base_url = crate::daemon::manager::ensure_running(&settings).await?;
+    Ok(crate::cli::client::ApiClient::new(base_url))
+}
+
+/// 以前台模式运行 daemon 服务端。
+///
+/// # 参数
+/// - 无
+///
+/// # 返回值
+/// - `MeloResult<()>`：运行结果
+async fn run_daemon_server() -> MeloResult<()> {
+    let settings = crate::core::config::settings::Settings::load()?;
+    let bind_addr = if let Ok(base_url) = std::env::var("MELO_BASE_URL") {
+        crate::daemon::process::daemon_bind_addr(&base_url)?
+    } else {
+        crate::daemon::process::next_bind_addr(
+            &settings.daemon.host,
+            settings.daemon.base_port,
+            settings.daemon.port_search_limit,
+        )
+        .await?
+    };
+    let listener = tokio::net::TcpListener::bind(bind_addr)
+        .await
+        .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
+    let listener_addr = listener
+        .local_addr()
+        .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
+    let state = crate::daemon::app::AppState::new()?;
+    let shutdown_state = state.clone();
+    crate::daemon::registry::store_registration(&state.daemon_registration(listener_addr)).await?;
+    let serve_result = axum::serve(listener, crate::daemon::server::router(state))
+        .with_graceful_shutdown(async move {
+            shutdown_state.wait_for_shutdown().await;
+        })
+        .await
+        .map_err(|err| crate::core::error::MeloError::Message(err.to_string()));
+    let clear_result = crate::daemon::registry::clear_registration().await;
+    serve_result?;
+    clear_result?;
+    Ok(())
 }
 
 /// 解析 CLI 中的布尔开关值。

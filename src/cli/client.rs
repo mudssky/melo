@@ -1,3 +1,4 @@
+use crate::api::system::{DaemonStatusResponse, HealthResponse};
 use crate::core::error::{MeloError, MeloResult};
 use crate::core::model::player::PlayerSnapshot;
 use crate::domain::open::service::OpenResponse;
@@ -89,6 +90,48 @@ impl ApiClient {
             .error_for_status()
             .map_err(|err| MeloError::Message(err.to_string()))?;
         Ok(())
+    }
+
+    /// 读取 daemon 健康响应。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<HealthResponse>`：健康响应
+    pub async fn health_status(&self) -> MeloResult<HealthResponse> {
+        let url = format!("{}/api/system/health", self.base_url);
+        self.client
+            .get(url)
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
+    }
+
+    /// 读取 daemon 系统状态响应。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<DaemonStatusResponse>`：系统状态响应
+    pub async fn daemon_status(&self) -> MeloResult<DaemonStatusResponse> {
+        let url = format!("{}/api/system/status", self.base_url);
+        self.client
+            .get(url)
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))
     }
 
     /// 请求 daemon 直接打开一个目标。

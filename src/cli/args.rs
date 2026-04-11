@@ -60,10 +60,33 @@ pub enum PlayerCommand {
 /// Daemon 生命周期相关子命令。
 #[derive(Debug, Subcommand)]
 pub enum DaemonCommand {
-    #[command(about = "Print the currently registered Melo daemon metadata")]
-    Status,
+    #[command(about = "Start the managed Melo daemon")]
+    Start,
+    #[command(about = "Print daemon state")]
+    Status {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        verbose: bool,
+    },
     #[command(about = "Gracefully stop the running Melo daemon")]
     Stop,
+    #[command(about = "Restart the managed Melo daemon")]
+    Restart,
+    #[command(about = "Read the daemon log file tail")]
+    Logs {
+        #[arg(long, default_value_t = 100)]
+        tail: usize,
+    },
+    #[command(about = "Diagnose the managed daemon")]
+    Doctor {
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Compare registration and live process state")]
+    Ps,
+    #[command(hide = true)]
+    Run,
 }
 
 /// 播放列表维护子命令。
@@ -100,7 +123,11 @@ pub enum Command {
     Status,
     #[command(about = "Launch the terminal UI client")]
     Tui,
-    #[command(about = "Run or manage the Melo daemon")]
+    #[command(
+        about = "Run or manage the Melo daemon",
+        long_about = "Run or manage the Melo daemon.",
+        after_help = "Examples:\n  melo daemon start\n  melo daemon status --json\n  melo daemon status --verbose\n  melo daemon doctor --json\n  melo daemon logs --tail 50"
+    )]
     Daemon {
         #[command(subcommand)]
         command: Option<DaemonCommand>,

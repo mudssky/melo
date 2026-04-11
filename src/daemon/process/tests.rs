@@ -9,14 +9,14 @@ fn daemon_bind_addr_uses_meolo_base_url_port() {
 }
 
 #[test]
-fn daemon_command_uses_current_exe_and_daemon_subcommand() {
-    let command = daemon_command(PathBuf::from("melo.exe"), "http://127.0.0.1:38123");
+fn daemon_command_uses_hidden_run_subcommand() {
+    let command = daemon_command(PathBuf::from("melo.exe"));
     let args = command
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
 
-    assert_eq!(args, vec!["daemon".to_string()]);
+    assert_eq!(args, vec!["daemon".to_string(), "run".to_string()]);
 }
 
 #[tokio::test]

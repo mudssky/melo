@@ -17,19 +17,51 @@ rusqlite = { version = "0.32.1", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 shell-words = "1.1.0"
+sysinfo = "0.38.4"
 tempfile = "3.23.0"
 thiserror = "2.0.11"
-tokio = { version = "1.51.0", features = ["fs", "macros", "process", "rt-multi-thread", "signal", "test-util", "time"] }
+time = { version = "0.3.44", features = ["formatting", "parsing"] }
+tokio = { version = "1.51.0", features = [
+    "fs",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "test-util",
+    "time",
+] }
+uuid = { version = "1.23.0", features = ["serde", "v4"] }
 walkdir = "2.5.0"
 
 # 按设计将逐步接入
-inquire = { version = "0.9.4", default-features = false, features = ["crossterm", "fuzzy", "macros", "one-liners"] }
+inquire = { version = "0.9.4", default-features = false, features = [
+    "crossterm",
+    "fuzzy",
+    "macros",
+    "one-liners",
+] }
 lofty = "0.23.3"
 mime_guess = "2.0.5"
-ratatui = { version = "0.30.0", default-features = false, features = ["crossterm"] }
-rodio = { version = "0.22.2", default-features = false, features = ["flac", "mp3", "playback", "vorbis", "wav"] }
-sea-orm = { version = "1.1.20", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-sqlite", "with-json"] }
-sea-orm-migration = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
+ratatui = { version = "0.30.0", default-features = false, features = [
+    "crossterm",
+] }
+rodio = { version = "0.22.2", default-features = false, features = [
+    "flac",
+    "mp3",
+    "playback",
+    "vorbis",
+    "wav",
+] }
+sea-orm = { version = "1.1.20", default-features = false, features = [
+    "macros",
+    "runtime-tokio-rustls",
+    "sqlx-sqlite",
+    "with-json",
+] }
+sea-orm-migration = { version = "1.1.20", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "sqlx-sqlite",
+] }
 tokio-tungstenite = "0.26.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
