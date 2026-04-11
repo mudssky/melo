@@ -8,6 +8,7 @@ use crate::core::config::settings::Settings;
 use crate::core::db::connection::connect;
 use crate::core::db::entities::{albums, artists, artwork_refs, songs};
 use crate::core::error::{MeloError, MeloResult};
+use crate::core::model::player::QueueItem;
 use crate::domain::library::metadata::SongMetadata;
 use crate::domain::playlist::query::SmartQuery;
 
@@ -361,6 +362,59 @@ impl LibraryRepository {
                 lyrics_source_kind: model.lyrics_source_kind,
             })
             .collect())
+    }
+
+    /// 按文件路径顺序返回对应歌曲 ID。
+    ///
+    /// # 参数
+    /// - `paths`：文件路径列表
+    ///
+    /// # 返回值
+    /// - `MeloResult<Vec<i64>>`：对应歌曲 ID 列表
+    pub async fn song_ids_by_paths(&self, paths: &[std::path::PathBuf]) -> MeloResult<Vec<i64>> {
+        let connection = connect(&self.settings).await?;
+        let mut song_ids = Vec::with_capacity(paths.len());
+
+        for path in paths {
+            let path_text = path.to_string_lossy().into_owned();
+            let song = songs::Entity::find()
+                .filter(songs::Column::Path.eq(path_text.clone()))
+                .one(&connection)
+                .await
+                .map_err(|err| MeloError::Message(err.to_string()))?
+                .ok_or_else(|| MeloError::Message(format!("未找到歌曲: {path_text}")))?;
+            song_ids.push(song.id);
+        }
+
+        Ok(song_ids)
+    }
+
+    /// 按歌曲 ID 顺序构造播放器队列项。
+    ///
+    /// # 参数
+    /// - `song_ids`：歌曲 ID 列表
+    ///
+    /// # 返回值
+    /// - `MeloResult<Vec<QueueItem>>`：播放器队列项列表
+    pub async fn queue_items_by_song_ids(&self, song_ids: &[i64]) -> MeloResult<Vec<QueueItem>> {
+        let connection = connect(&self.settings).await?;
+        let mut items = Vec::with_capacity(song_ids.len());
+
+        for song_id in song_ids {
+            let song = songs::Entity::find_by_id(*song_id)
+                .one(&connection)
+                .await
+                .map_err(|err| MeloError::Message(err.to_string()))?
+                .ok_or_else(|| MeloError::Message(format!("未找到歌曲: {song_id}")))?;
+            items.push(QueueItem {
+                song_id: song.id,
+                path: song.path,
+                title: song.title,
+                duration_seconds: song.duration_seconds,
+            });
+        }
+
+        Ok(items)
     }
 
     /// 按歌曲 ID 查询封面引用。

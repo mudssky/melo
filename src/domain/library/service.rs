@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::core::config::settings::Settings;
 use crate::core::error::{MeloError, MeloResult};
+use crate::core::model::player::QueueItem;
 use crate::domain::library::lofty_reader::LoftyMetadataReader;
 use crate::domain::library::metadata::{LyricsSourceKind, MetadataReader, NullMetadataReader};
 use crate::domain::library::organize::OrganizePreviewRow;
@@ -106,6 +107,41 @@ impl LibraryService {
         }
 
         Ok(())
+    }
+
+    /// 确保给定路径已经被扫描并返回对应歌曲 ID。
+    ///
+    /// # 参数
+    /// - `audio_paths`：待确保存在的音频路径列表
+    /// - `prewarm_limit`：同步预热上限
+    ///
+    /// # 返回值
+    /// - `MeloResult<Vec<i64>>`：对应歌曲 ID 列表
+    pub async fn ensure_scanned_paths(
+        &self,
+        audio_paths: &[std::path::PathBuf],
+        prewarm_limit: usize,
+    ) -> MeloResult<Vec<i64>> {
+        let split_at = prewarm_limit.min(audio_paths.len());
+        if split_at > 0 {
+            self.scan_paths(&audio_paths[..split_at]).await?;
+        }
+        if split_at < audio_paths.len() {
+            self.scan_paths(&audio_paths[split_at..]).await?;
+        }
+
+        self.repository.song_ids_by_paths(audio_paths).await
+    }
+
+    /// 按歌曲 ID 顺序构造播放器队列项。
+    ///
+    /// # 参数
+    /// - `song_ids`：歌曲 ID 列表
+    ///
+    /// # 返回值
+    /// - `MeloResult<Vec<QueueItem>>`：播放器队列项列表
+    pub async fn queue_items_for_song_ids(&self, song_ids: &[i64]) -> MeloResult<Vec<QueueItem>> {
+        self.repository.queue_items_by_song_ids(song_ids).await
     }
 
     /// 列出库中的歌曲摘要。

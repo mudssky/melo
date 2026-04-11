@@ -84,6 +84,7 @@ pub fn router(state: AppState) -> Router {
             "/api/queue/move",
             axum::routing::post(crate::api::queue::move_item),
         )
+        .route("/api/open", axum::routing::post(crate::api::open::open))
         .route(
             "/api/ws/player",
             axum::routing::get(crate::api::ws::player_updates),
