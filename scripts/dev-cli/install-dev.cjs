@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const { spawnSync } = require('node:child_process')
 
 /**
  * 解析 Cargo home 目录。
@@ -13,7 +13,9 @@ const { spawnSync } = require("node:child_process");
  * @returns {string} Cargo home 绝对路径
  */
 function resolveCargoHome(env = process.env, homeDir = os.homedir()) {
-  return env.CARGO_HOME ? path.resolve(env.CARGO_HOME) : path.join(homeDir, ".cargo");
+  return env.CARGO_HOME
+    ? path.resolve(env.CARGO_HOME)
+    : path.join(homeDir, '.cargo')
 }
 
 /**
@@ -29,9 +31,9 @@ function resolveInstalledBinaryPath(
   platform = process.platform,
   homeDir = os.homedir(),
 ) {
-  const cargoHome = resolveCargoHome(env, homeDir);
-  const binaryName = platform === "win32" ? "melo.exe" : "melo";
-  return path.join(cargoHome, "bin", binaryName);
+  const cargoHome = resolveCargoHome(env, homeDir)
+  const binaryName = platform === 'win32' ? 'melo.exe' : 'melo'
+  return path.join(cargoHome, 'bin', binaryName)
 }
 
 /**
@@ -48,16 +50,16 @@ function resolveDaemonStatePath(
   homeDir = os.homedir(),
 ) {
   if (env.MELO_DAEMON_STATE_FILE) {
-    return env.MELO_DAEMON_STATE_FILE;
+    return env.MELO_DAEMON_STATE_FILE
   }
 
-  if (platform === "win32") {
+  if (platform === 'win32') {
     const localAppData =
-      env.LOCALAPPDATA ?? path.join(homeDir, "AppData", "Local");
-    return path.join(localAppData, "melo", "daemon.json");
+      env.LOCALAPPDATA ?? path.join(homeDir, 'AppData', 'Local')
+    return path.join(localAppData, 'melo', 'daemon.json')
   }
 
-  return path.join(homeDir, ".local", "share", "melo", "daemon.json");
+  return path.join(homeDir, '.local', 'share', 'melo', 'daemon.json')
 }
 
 /**
@@ -77,14 +79,14 @@ function runCommand(command, args, options = {}) {
   const result = (options.spawnSyncImpl ?? spawnSync)(command, args, {
     cwd: options.cwd ?? options.repoRoot,
     env: options.env,
-    encoding: options.encoding ?? "utf8",
-  });
+    encoding: options.encoding ?? 'utf8',
+  })
 
   if (result.error) {
-    throw result.error;
+    throw result.error
   }
 
-  return result;
+  return result
 }
 
 /**
@@ -107,14 +109,14 @@ function loadRegisteredDaemon(options = {}) {
       options.env ?? process.env,
       options.platform ?? process.platform,
       options.homeDir ?? os.homedir(),
-    );
-  const existsSyncImpl = options.existsSyncImpl ?? fs.existsSync;
+    )
+  const existsSyncImpl = options.existsSyncImpl ?? fs.existsSync
   if (!existsSyncImpl(daemonStatePath)) {
-    return null;
+    return null
   }
 
-  const readFileSyncImpl = options.readFileSyncImpl ?? fs.readFileSync;
-  return JSON.parse(readFileSyncImpl(daemonStatePath, "utf8"));
+  const readFileSyncImpl = options.readFileSyncImpl ?? fs.readFileSync
+  return JSON.parse(readFileSyncImpl(daemonStatePath, 'utf8'))
 }
 
 /**
@@ -130,42 +132,38 @@ function loadRegisteredDaemon(options = {}) {
  * @returns {{ pid: number, path: string } | null} 存活时返回进程信息
  */
 function queryProcessInfo(pid, options = {}) {
-  if (typeof pid !== "number") {
-    return null;
+  if (typeof pid !== 'number') {
+    return null
   }
 
-  if ((options.platform ?? process.platform) === "win32") {
+  if ((options.platform ?? process.platform) === 'win32') {
     const command = [
-      "$process = Get-Process -Id ",
+      '$process = Get-Process -Id ',
       String(pid),
-      " -ErrorAction SilentlyContinue; ",
-      "if ($null -eq $process) { exit 1 }; ",
-      "[pscustomobject]@{ pid = $process.Id; path = $process.Path } | ConvertTo-Json -Compress",
-    ].join("");
-    const result = runCommand(
-      "pwsh",
-      ["-NoLogo", "-Command", command],
-      options,
-    );
+      ' -ErrorAction SilentlyContinue; ',
+      'if ($null -eq $process) { exit 1 }; ',
+      '[pscustomobject]@{ pid = $process.Id; path = $process.Path } | ConvertTo-Json -Compress',
+    ].join('')
+    const result = runCommand('pwsh', ['-NoLogo', '-Command', command], options)
     if (result.status !== 0 || !result.stdout?.trim()) {
-      return null;
+      return null
     }
-    return JSON.parse(result.stdout);
+    return JSON.parse(result.stdout)
   }
 
   const result = runCommand(
-    "ps",
-    ["-p", String(pid), "-o", "pid=", "-o", "comm="],
+    'ps',
+    ['-p', String(pid), '-o', 'pid=', '-o', 'comm='],
     options,
-  );
+  )
   if (result.status !== 0 || !result.stdout?.trim()) {
-    return null;
+    return null
   }
-  const [resolvedPid, executablePath] = result.stdout.trim().split(/\s+/, 2);
+  const [resolvedPid, executablePath] = result.stdout.trim().split(/\s+/, 2)
   return {
     pid: Number(resolvedPid),
     path: executablePath,
-  };
+  }
 }
 
 /**
@@ -182,12 +180,12 @@ function matchesManagedDaemon(
   platform = process.platform,
 ) {
   if (!processInfo?.path) {
-    return false;
+    return false
   }
 
   const normalize = (value) =>
-    platform === "win32" ? value.toLowerCase() : value;
-  return normalize(processInfo.path) === normalize(installedBinaryPath);
+    platform === 'win32' ? value.toLowerCase() : value
+  return normalize(processInfo.path) === normalize(installedBinaryPath)
 }
 
 /**
@@ -197,7 +195,7 @@ function matchesManagedDaemon(
  * @returns {void}
  */
 function sleepSync(milliseconds) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 }
 
 /**
@@ -212,16 +210,16 @@ function sleepSync(milliseconds) {
  */
 function runCargoInstall(options = {}) {
   const result = runCommand(
-    "cargo",
-    ["install", "--path", ".", "--force"],
+    'cargo',
+    ['install', '--path', '.', '--force'],
     options,
-  );
+  )
 
   if (result.status !== 0) {
-    throw new Error(result.stderr || "cargo install --path . --force failed");
+    throw new Error(result.stderr || 'cargo install --path . --force failed')
   }
 
-  return result.status ?? 1;
+  return result.status ?? 1
 }
 
 /**
@@ -244,39 +242,39 @@ function stopRegisteredDaemon(options = {}) {
     options.env ?? process.env,
     options.platform ?? process.platform,
     options.homeDir ?? os.homedir(),
-  );
-  const registration = loadRegisteredDaemon(options);
+  )
+  const registration = loadRegisteredDaemon(options)
   if (!registration?.pid) {
-    return;
+    return
   }
 
-  const processInfo = queryProcessInfo(registration.pid, options);
-  if (!matchesManagedDaemon(processInfo, installedBinaryPath, options.platform)) {
-    return;
+  const processInfo = queryProcessInfo(registration.pid, options)
+  if (
+    !matchesManagedDaemon(processInfo, installedBinaryPath, options.platform)
+  ) {
+    return
   }
 
-  console.log("Detected running Melo daemon, stopping before reinstall...");
-  runCommand(installedBinaryPath, ["daemon", "stop"], options);
+  console.log('Detected running Melo daemon, stopping before reinstall...')
+  runCommand(installedBinaryPath, ['daemon', 'stop'], options)
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    sleepSync(200);
-    const current = queryProcessInfo(registration.pid, options);
+    sleepSync(200)
+    const current = queryProcessInfo(registration.pid, options)
     if (!current) {
-      console.log("Daemon stopped cleanly. Continuing install...");
-      return;
+      console.log('Daemon stopped cleanly. Continuing install...')
+      return
     }
   }
 
-  console.log("Daemon did not exit in time, force-stopping registered process...");
+  console.log(
+    'Daemon did not exit in time, force-stopping registered process...',
+  )
   runCommand(
-    "pwsh",
-    [
-      "-NoLogo",
-      "-Command",
-      `Stop-Process -Id ${registration.pid} -Force`,
-    ],
+    'pwsh',
+    ['-NoLogo', '-Command', `Stop-Process -Id ${registration.pid} -Force`],
     options,
-  );
+  )
 }
 
 /**
@@ -296,16 +294,16 @@ function stopRegisteredDaemon(options = {}) {
  * @returns {number} 安装流程退出码
  */
 function run(options = {}) {
-  stopRegisteredDaemon(options);
+  stopRegisteredDaemon(options)
   return runCargoInstall({
     cwd: options.repoRoot ?? options.cwd,
     env: options.env,
     spawnSyncImpl: options.spawnSyncImpl,
-  });
+  })
 }
 
 if (require.main === module) {
-  process.exit(run({ repoRoot: path.resolve(__dirname, "../..") }));
+  process.exit(run({ repoRoot: path.resolve(__dirname, '../..') }))
 }
 
 module.exports = {
@@ -319,4 +317,4 @@ module.exports = {
   runCargoInstall,
   runCommand,
   stopRegisteredDaemon,
-};
+}

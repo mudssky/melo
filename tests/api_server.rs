@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use axum::body::Body;
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use futures_util::StreamExt;
 use melo::domain::player::backend::{PlaybackBackend, PlaybackCommand};
@@ -122,6 +122,31 @@ async fn system_shutdown_endpoint_marks_app_state_for_shutdown() {
 
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     assert!(state.shutdown_requested());
+}
+
+#[tokio::test]
+async fn system_status_endpoint_returns_managed_identity() {
+    let app = melo::daemon::app::test_router().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/system/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: melo::api::system::DaemonStatusResponse = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(payload.backend, "noop");
+    assert!(payload.instance_id.starts_with("test-instance"));
+    assert!(payload.log_path.ends_with("daemon.log"));
+    assert!(!payload.shutdown_requested);
 }
 
 #[tokio::test]

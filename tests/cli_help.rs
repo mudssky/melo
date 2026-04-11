@@ -87,3 +87,18 @@ fn cli_help_lists_structured_player_command() {
         .stdout(predicate::str::contains("queue"))
         .stdout(predicate::str::contains("playlist"));
 }
+
+#[test]
+fn daemon_help_lists_management_commands_and_flags() {
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.arg("daemon").arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("start"))
+        .stdout(predicate::str::contains("restart"))
+        .stdout(predicate::str::contains("logs"))
+        .stdout(predicate::str::contains("doctor"))
+        .stdout(predicate::str::contains("--json"))
+        .stdout(predicate::str::contains("--verbose"));
+}

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-const os = require("node:os");
-const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const os = require('node:os')
+const path = require('node:path')
+const { spawnSync } = require('node:child_process')
 
 /**
  * 推导 pnpm 全局 bin 目录。
@@ -18,14 +18,14 @@ function resolvePnpmHome(
   homeDir = os.homedir(),
 ) {
   if (env.PNPM_HOME) {
-    return env.PNPM_HOME;
+    return env.PNPM_HOME
   }
 
-  if (platform === "win32") {
-    return path.join(homeDir, "AppData", "Local", "pnpm");
+  if (platform === 'win32') {
+    return path.join(homeDir, 'AppData', 'Local', 'pnpm')
   }
 
-  return path.join(homeDir, ".local", "share", "pnpm");
+  return path.join(homeDir, '.local', 'share', 'pnpm')
 }
 
 /**
@@ -35,18 +35,21 @@ function resolvePnpmHome(
  * @param {string} [nodeExecPath=process.execPath] 当前 Node 可执行路径
  * @returns {{command: string, prefixArgs: string[]}} pnpm 启动命令与前置参数
  */
-function resolvePnpmCommand(env = process.env, nodeExecPath = process.execPath) {
+function resolvePnpmCommand(
+  env = process.env,
+  nodeExecPath = process.execPath,
+) {
   if (env.npm_execpath) {
     return {
       command: nodeExecPath,
       prefixArgs: [env.npm_execpath],
-    };
+    }
   }
 
   return {
-    command: "pnpm",
+    command: 'pnpm',
     prefixArgs: [],
-  };
+  }
 }
 
 /**
@@ -55,7 +58,7 @@ function resolvePnpmCommand(env = process.env, nodeExecPath = process.execPath) 
  * @param {string[]} args 要执行的 pnpm 参数
  * @param {{
  *   cwd?: string,
-  *   env?: NodeJS.ProcessEnv,
+ *   env?: NodeJS.ProcessEnv,
  *   nodeExecPath?: string,
  *   spawnSyncImpl?: typeof spawnSync
  * }} [options={}] 运行选项
@@ -65,26 +68,26 @@ function runPnpm(args, options = {}) {
   const invocation = resolvePnpmCommand(
     options.env ?? process.env,
     options.nodeExecPath ?? process.execPath,
-  );
+  )
   const result = (options.spawnSyncImpl ?? spawnSync)(
     invocation.command,
     [...invocation.prefixArgs, ...args],
     {
-    cwd: options.cwd,
-    env: options.env,
-    encoding: "utf8",
+      cwd: options.cwd,
+      env: options.env,
+      encoding: 'utf8',
     },
-  );
+  )
 
   if (result.error) {
-    throw result.error;
+    throw result.error
   }
 
   if (result.status !== 0) {
-    throw new Error(result.stderr || `pnpm ${args.join(" ")} failed`);
+    throw new Error(result.stderr || `pnpm ${args.join(' ')} failed`)
   }
 
-  return result;
+  return result
 }
 
 /**
@@ -93,7 +96,7 @@ function runPnpm(args, options = {}) {
  * @param {{
  *   cwd?: string,
  *   env?: NodeJS.ProcessEnv,
-  *   homeDir?: string,
+ *   homeDir?: string,
  *   nodeExecPath?: string,
  *   platform?: NodeJS.Platform,
  *   spawnSyncImpl?: typeof spawnSync
@@ -101,20 +104,23 @@ function runPnpm(args, options = {}) {
  * @returns {string} 生效中的 pnpm 全局 bin 目录
  */
 function ensureGlobalBinDir(options = {}) {
-  const env = options.env ?? process.env;
+  const env = options.env ?? process.env
   const pnpmHome = resolvePnpmHome(
     env,
     options.platform ?? process.platform,
     options.homeDir ?? os.homedir(),
-  );
-  const current = runPnpm(["config", "get", "global-bin-dir"], options).stdout?.trim();
+  )
+  const current = runPnpm(
+    ['config', 'get', 'global-bin-dir'],
+    options,
+  ).stdout?.trim()
 
-  if (!current || current === "undefined") {
-    runPnpm(["config", "set", "global-bin-dir", pnpmHome], options);
-    return pnpmHome;
+  if (!current || current === 'undefined') {
+    runPnpm(['config', 'set', 'global-bin-dir', pnpmHome], options)
+    return pnpmHome
   }
 
-  return current;
+  return current
 }
 
 /**
@@ -123,7 +129,7 @@ function ensureGlobalBinDir(options = {}) {
  * @param {{
  *   cwd?: string,
  *   env?: NodeJS.ProcessEnv,
-  *   homeDir?: string,
+ *   homeDir?: string,
  *   nodeExecPath?: string,
  *   platform?: NodeJS.Platform,
  *   spawnSyncImpl?: typeof spawnSync
@@ -131,33 +137,35 @@ function ensureGlobalBinDir(options = {}) {
  * @returns {number} 子进程退出码
  */
 function run(options = {}) {
-  const env = { ...(options.env ?? process.env) };
+  const env = { ...(options.env ?? process.env) }
   const pnpmHome = ensureGlobalBinDir({
     ...options,
     env,
-  });
+  })
 
   if (!env.PNPM_HOME) {
-    env.PNPM_HOME = pnpmHome;
+    env.PNPM_HOME = pnpmHome
   }
 
-  const pathValue = env.Path ?? env.PATH ?? "";
+  const pathValue = env.Path ?? env.PATH ?? ''
   if (!pathValue.split(path.delimiter).includes(pnpmHome)) {
     const nextPathValue = pathValue
       ? `${pnpmHome}${path.delimiter}${pathValue}`
-      : pnpmHome;
-    env.Path = nextPathValue;
-    env.PATH = nextPathValue;
+      : pnpmHome
+    env.Path = nextPathValue
+    env.PATH = nextPathValue
   }
 
-  return runPnpm(["link", "--global"], {
-    ...options,
-    env,
-  }).status ?? 1;
+  return (
+    runPnpm(['link', '--global'], {
+      ...options,
+      env,
+    }).status ?? 1
+  )
 }
 
 if (require.main === module) {
-  process.exit(run());
+  process.exit(run())
 }
 
 module.exports = {
@@ -166,4 +174,4 @@ module.exports = {
   resolvePnpmHome,
   run,
   runPnpm,
-};
+}
