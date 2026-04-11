@@ -27,7 +27,7 @@
     "setup:dev": "pnpm install:dev:safe && pnpm link:dev",
     "watch:install": "watchexec --postpone --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev:safe",
     "qa:rs": "pnpm format:rs && pnpm lint:rs:rtk && pnpm test:rs:rtk",
-    "qa": "concurrently --prefix none --group \"pnpm test:ts\" \"pnpm qa:rs\""
+    "qa": "concurrently --prefix none --group --kill-others-on-fail \"pnpm test:ts\" \"pnpm qa:rs\""
   },
   "packageManager": "pnpm@10.26.1",
   "devDependencies": {
