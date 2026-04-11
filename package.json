@@ -20,6 +20,8 @@
     "precommit:rs": "pnpm format:rs:check && pnpm lint:rs",
     "prepare": "husky",
     "test:rs": "cargo test -q",
+    "test:rs:lib": "cargo test --lib -q",
+    "test:rs:norun": "cargo test --no-run",
     "test:rs:rtk": "rtk cargo test -q",
     "test:dev-cli": "vitest run tests/dev-cli",
     "test:ts": "vitest run",
