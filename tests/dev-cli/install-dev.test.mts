@@ -8,6 +8,13 @@ const require = createRequire(import.meta.url)
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(currentDir, '../..')
 const installDev = require('../../scripts/dev-cli/install-dev.cjs') as {
+  queryProcessInfo: (pid: number, options: {
+    env?: Record<string, string>
+    homeDir?: string
+    platform: NodeJS.Platform
+    repoRoot?: string
+    spawnSyncImpl: ReturnType<typeof vi.fn>
+  }) => { pid: number; path: string } | null
   run: (options: {
     env: Record<string, string>
     homeDir: string
@@ -42,6 +49,36 @@ describe('install dev helper', () => {
     expect(spawnSyncImpl).toHaveBeenCalledWith(
       'cargo',
       ['install', '--path', '.', '--force'],
+      expect.objectContaining({
+        cwd: repoRoot,
+        encoding: 'utf8',
+      }),
+    )
+  })
+
+  it('queries Windows process info with pwsh -NoProfile to keep stdout machine-readable', () => {
+    const spawnSyncImpl = vi.fn(() => ({
+      status: 0,
+      stdout: JSON.stringify({
+        pid: 4242,
+        path: 'C:/Users/dev/.cargo/bin/melo.exe',
+      }),
+      stderr: '',
+    }))
+
+    const info = installDev.queryProcessInfo(4242, {
+      platform: 'win32',
+      repoRoot,
+      spawnSyncImpl,
+    })
+
+    expect(info).toEqual({
+      pid: 4242,
+      path: 'C:/Users/dev/.cargo/bin/melo.exe',
+    })
+    expect(spawnSyncImpl).toHaveBeenCalledWith(
+      'pwsh',
+      expect.arrayContaining(['-NoLogo', '-NoProfile', '-Command']),
       expect.objectContaining({
         cwd: repoRoot,
         encoding: 'utf8',

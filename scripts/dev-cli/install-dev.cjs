@@ -144,7 +144,11 @@ function queryProcessInfo(pid, options = {}) {
       'if ($null -eq $process) { exit 1 }; ',
       '[pscustomobject]@{ pid = $process.Id; path = $process.Path } | ConvertTo-Json -Compress',
     ].join('')
-    const result = runCommand('pwsh', ['-NoLogo', '-Command', command], options)
+    const result = runCommand(
+      'pwsh',
+      ['-NoLogo', '-NoProfile', '-Command', command],
+      options,
+    )
     if (result.status !== 0 || !result.stdout?.trim()) {
       return null
     }
@@ -272,7 +276,12 @@ function stopRegisteredDaemon(options = {}) {
   )
   runCommand(
     'pwsh',
-    ['-NoLogo', '-Command', `Stop-Process -Id ${registration.pid} -Force`],
+    [
+      '-NoLogo',
+      '-NoProfile',
+      '-Command',
+      `Stop-Process -Id ${registration.pid} -Force`,
+    ],
     options,
   )
 }
