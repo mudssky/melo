@@ -57,6 +57,13 @@ pub enum PlayerCommand {
     },
 }
 
+/// Daemon 生命周期相关子命令。
+#[derive(Debug, Subcommand)]
+pub enum DaemonCommand {
+    #[command(about = "Gracefully stop the running Melo daemon")]
+    Stop,
+}
+
 /// 播放列表维护子命令。
 #[derive(Debug, Subcommand)]
 pub enum PlaylistCommand {
@@ -92,7 +99,10 @@ pub enum Command {
     #[command(about = "Launch the terminal UI client")]
     Tui,
     #[command(about = "Run or manage the Melo daemon")]
-    Daemon,
+    Daemon {
+        #[command(subcommand)]
+        command: Option<DaemonCommand>,
+    },
     #[command(
         about = "Inspect or control advanced player state",
         long_about = "Inspect or control advanced player state such as volume, mute, repeat, and shuffle."

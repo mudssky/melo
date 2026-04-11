@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::config::settings::Settings;
 use crate::core::error::MeloResult;
@@ -8,6 +9,7 @@ use crate::domain::player::factory;
 use crate::domain::player::service::PlayerService;
 use crate::domain::player::session_store::PlayerSessionStore;
 use crate::domain::playlist::service::PlaylistService;
+use tokio::sync::Notify;
 
 /// daemon 共享应用状态。
 #[derive(Clone)]
@@ -18,6 +20,10 @@ pub struct AppState {
     pub settings: Settings,
     /// 直接打开服务。
     pub open: Arc<crate::domain::open::service::OpenService>,
+    /// daemon 关闭通知器。
+    shutdown_notify: Arc<Notify>,
+    /// daemon 是否已收到关闭请求。
+    shutdown_requested: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -81,6 +87,8 @@ impl AppState {
             player,
             settings,
             open,
+            shutdown_notify: Arc::new(Notify::new()),
+            shutdown_requested: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -117,6 +125,8 @@ impl AppState {
             player: Arc::clone(&player),
             settings,
             open,
+            shutdown_notify: Arc::new(Notify::new()),
+            shutdown_requested: Arc::new(AtomicBool::new(false)),
         };
         state.spawn_session_save_loop(session_store);
         Ok(state)
@@ -184,6 +194,43 @@ impl AppState {
         request: crate::domain::open::service::OpenRequest,
     ) -> crate::core::error::MeloResult<crate::domain::open::service::OpenResponse> {
         self.open.open(request).await
+    }
+
+    /// 请求 daemon 进入关闭流程。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn request_shutdown(&self) {
+        self.shutdown_requested.store(true, Ordering::SeqCst);
+        self.shutdown_notify.notify_waiters();
+    }
+
+    /// 等待 daemon 收到关闭信号。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - 无
+    pub async fn wait_for_shutdown(&self) {
+        if self.shutdown_requested() {
+            return;
+        }
+        self.shutdown_notify.notified().await;
+    }
+
+    /// 判断当前是否已收到关闭请求。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `bool`：是否已请求关闭
+    pub fn shutdown_requested(&self) -> bool {
+        self.shutdown_requested.load(Ordering::SeqCst)
     }
 }
 

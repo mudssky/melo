@@ -105,6 +105,26 @@ async fn api_health_and_player_status_endpoints_work() {
 }
 
 #[tokio::test]
+async fn system_shutdown_endpoint_marks_app_state_for_shutdown() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    let app = melo::daemon::server::router(state.clone());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/system/shutdown")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    assert!(state.shutdown_requested());
+}
+
+#[tokio::test]
 async fn queue_endpoints_and_ws_broadcast_share_snapshot_contract() {
     let app = melo::daemon::app::test_router().await;
 

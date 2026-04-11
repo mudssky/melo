@@ -1,7 +1,8 @@
 use clap::Parser;
 
 use crate::cli::args::{
-    CliArgs, Command, DbCommand, PlayerCommand, PlayerModeCommand, PlaylistCommand, QueueCommand,
+    CliArgs, Command, DaemonCommand, DbCommand, PlayerCommand, PlayerModeCommand, PlaylistCommand,
+    QueueCommand,
 };
 use crate::core::error::MeloResult;
 
@@ -127,7 +128,16 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
             )
             .await?;
         }
-        Some(Command::Daemon) => {
+        Some(Command::Daemon {
+            command: Some(DaemonCommand::Stop),
+        }) => {
+            daemon_client()
+                .await?
+                .post_no_body("/api/system/shutdown")
+                .await?;
+            println!("stopped");
+        }
+        Some(Command::Daemon { command: None }) => {
             let settings = crate::core::config::settings::Settings::load()?;
             let bind_addr = if let Ok(base_url) = std::env::var("MELO_BASE_URL") {
                 crate::daemon::process::daemon_bind_addr(&base_url)?
@@ -147,6 +157,7 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
                 .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
             let state = crate::daemon::app::AppState::new()?;
             let backend_name = state.player.snapshot().await.backend_name;
+            let shutdown_state = state.clone();
             crate::daemon::registry::store_registration(
                 &crate::daemon::registry::DaemonRegistration {
                     base_url: format!("http://{listener_addr}"),
@@ -160,6 +171,9 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
             )
             .await?;
             let serve_result = axum::serve(listener, crate::daemon::server::router(state))
+                .with_graceful_shutdown(async move {
+                    shutdown_state.wait_for_shutdown().await;
+                })
                 .await
                 .map_err(|err| crate::core::error::MeloError::Message(err.to_string()));
             let clear_result = crate::daemon::registry::clear_registration().await;

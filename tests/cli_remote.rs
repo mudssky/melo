@@ -207,3 +207,48 @@ async fn explicit_open_command_prints_stable_error_body() {
         .failure()
         .stderr(predicate::str::contains("unsupported_open_format"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn daemon_stop_command_shuts_down_registered_server() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    let app = melo::daemon::server::router(state.clone());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+
+    std::fs::write(
+        &state_file,
+        serde_json::json!({
+            "base_url": format!("http://{addr}"),
+            "pid": std::process::id(),
+            "started_at": "2026-04-11T18:00:00Z",
+            "version": env!("CARGO_PKG_VERSION"),
+            "backend": "noop",
+            "host": "127.0.0.1",
+            "port": addr.port()
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let shutdown_state = state.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                shutdown_state.wait_for_shutdown().await;
+            })
+            .await
+            .unwrap();
+    });
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("daemon").arg("stop");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("stopped"));
+
+    server.await.unwrap();
+}
