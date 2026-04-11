@@ -1,3 +1,4 @@
+use crate::api::response::ApiResponse;
 use crate::api::system::{DaemonStatusResponse, HealthResponse};
 use crate::core::error::{MeloError, MeloResult};
 use crate::core::model::player::PlayerSnapshot;
@@ -52,6 +53,66 @@ impl ApiClient {
         Ok(Self::new(base_url))
     }
 
+    /// 发送请求并统一解包 API 响应壳。
+    ///
+    /// # 参数
+    /// - `request`：已配置好的请求构造器
+    ///
+    /// # 返回值
+    /// - `MeloResult<T>`：解包后的业务数据
+    async fn send_and_decode<T>(&self, request: reqwest::RequestBuilder) -> MeloResult<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let response = request
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+        let status = response.status();
+        let envelope: ApiResponse<T> = response
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+
+        if envelope.code != 0 {
+            return Err(MeloError::Message(format!(
+                "api_error:{}:{}",
+                envelope.code, envelope.msg
+            )));
+        }
+
+        envelope.data.ok_or_else(|| {
+            MeloError::Message(format!("api_error:missing_data:status={}", status.as_u16()))
+        })
+    }
+
+    /// 发送请求并验证空数据成功响应。
+    ///
+    /// # 参数
+    /// - `request`：已配置好的请求构造器
+    ///
+    /// # 返回值
+    /// - `MeloResult<()>`：调用结果
+    async fn send_and_decode_empty(&self, request: reqwest::RequestBuilder) -> MeloResult<()> {
+        let response = request
+            .send()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+        let envelope: ApiResponse<serde_json::Value> = response
+            .json()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+
+        if envelope.code != 0 {
+            return Err(MeloError::Message(format!(
+                "api_error:{}:{}",
+                envelope.code, envelope.msg
+            )));
+        }
+
+        Ok(())
+    }
+
     /// 获取播放器状态快照。
     ///
     /// # 参数
@@ -61,16 +122,7 @@ impl ApiClient {
     /// - `MeloResult<PlayerSnapshot>`：状态快照
     pub async fn status(&self) -> MeloResult<PlayerSnapshot> {
         let url = format!("{}/api/player/status", self.base_url);
-        self.client
-            .get(url)
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(self.client.get(url)).await
     }
 
     /// 检查 daemon 健康状态。
@@ -82,14 +134,7 @@ impl ApiClient {
     /// - `MeloResult<()>`：健康时返回 `Ok(())`
     pub async fn health(&self) -> MeloResult<()> {
         let url = format!("{}/api/system/health", self.base_url);
-        self.client
-            .get(url)
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?;
-        Ok(())
+        self.send_and_decode_empty(self.client.get(url)).await
     }
 
     /// 读取 daemon 健康响应。
@@ -101,16 +146,7 @@ impl ApiClient {
     /// - `MeloResult<HealthResponse>`：健康响应
     pub async fn health_status(&self) -> MeloResult<HealthResponse> {
         let url = format!("{}/api/system/health", self.base_url);
-        self.client
-            .get(url)
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(self.client.get(url)).await
     }
 
     /// 读取 daemon 系统状态响应。
@@ -122,16 +158,7 @@ impl ApiClient {
     /// - `MeloResult<DaemonStatusResponse>`：系统状态响应
     pub async fn daemon_status(&self) -> MeloResult<DaemonStatusResponse> {
         let url = format!("{}/api/system/status", self.base_url);
-        self.client
-            .get(url)
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(self.client.get(url)).await
     }
 
     /// 请求 daemon 直接打开一个目标。
@@ -144,28 +171,12 @@ impl ApiClient {
     /// - `MeloResult<OpenResponse>`：打开结果
     pub async fn open_target(&self, target: String, mode: &str) -> MeloResult<OpenResponse> {
         let url = format!("{}/api/open", self.base_url);
-        let response = self
-            .client
-            .post(url)
-            .json(&serde_json::json!({ "target": target, "mode": mode }))
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?;
-        if !status.is_success() {
-            return Err(MeloError::Message(if body.is_empty() {
-                format!("open_request_failed:{status}")
-            } else {
-                body
-            }));
-        }
-
-        serde_json::from_str(&body).map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(
+            self.client
+                .post(url)
+                .json(&serde_json::json!({ "target": target, "mode": mode })),
+        )
+        .await
     }
 
     /// 发送一个无请求体的 POST 命令。
@@ -177,14 +188,7 @@ impl ApiClient {
     /// - `MeloResult<()>`：调用结果
     pub async fn post_no_body(&self, path: &str) -> MeloResult<()> {
         let url = format!("{}{}", self.base_url, path);
-        self.client
-            .post(url)
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?;
-        Ok(())
+        self.send_and_decode_empty(self.client.post(url)).await
     }
 
     /// 发送一个无请求体的 POST 命令，并读取播放器快照。
@@ -196,16 +200,7 @@ impl ApiClient {
     /// - `MeloResult<PlayerSnapshot>`：接口返回的最新快照
     pub async fn post_json(&self, path: &str) -> MeloResult<PlayerSnapshot> {
         let url = format!("{}{}", self.base_url, path);
-        self.client
-            .post(url)
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(self.client.post(url)).await
     }
 
     /// 发送带 JSON 请求体的 POST 命令，并读取播放器快照。
@@ -222,17 +217,8 @@ impl ApiClient {
         body: serde_json::Value,
     ) -> MeloResult<PlayerSnapshot> {
         let url = format!("{}{}", self.base_url, path);
-        self.client
-            .post(url)
-            .json(&body)
-            .send()
+        self.send_and_decode(self.client.post(url).json(&body))
             .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
     }
 
     /// 获取当前队列快照。
@@ -244,16 +230,7 @@ impl ApiClient {
     /// - `MeloResult<PlayerSnapshot>`：当前快照
     pub async fn queue_show(&self) -> MeloResult<PlayerSnapshot> {
         let url = format!("{}/api/player/status", self.base_url);
-        self.client
-            .get(url)
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(self.client.get(url)).await
     }
 
     /// 清空远端队列。
@@ -265,16 +242,7 @@ impl ApiClient {
     /// - `MeloResult<PlayerSnapshot>`：最新快照
     pub async fn queue_clear(&self) -> MeloResult<PlayerSnapshot> {
         let url = format!("{}/api/queue/clear", self.base_url);
-        self.client
-            .post(url)
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(self.client.post(url)).await
     }
 
     /// 选择远端队列中的某一项并播放。
@@ -286,17 +254,12 @@ impl ApiClient {
     /// - `MeloResult<PlayerSnapshot>`：最新快照
     pub async fn queue_play_index(&self, index: usize) -> MeloResult<PlayerSnapshot> {
         let url = format!("{}/api/queue/play", self.base_url);
-        self.client
-            .post(url)
-            .json(&serde_json::json!({ "index": index }))
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(
+            self.client
+                .post(url)
+                .json(&serde_json::json!({ "index": index })),
+        )
+        .await
     }
 
     /// 删除远端队列中的某一项。
@@ -308,17 +271,12 @@ impl ApiClient {
     /// - `MeloResult<PlayerSnapshot>`：最新快照
     pub async fn queue_remove(&self, index: usize) -> MeloResult<PlayerSnapshot> {
         let url = format!("{}/api/queue/remove", self.base_url);
-        self.client
-            .post(url)
-            .json(&serde_json::json!({ "index": index }))
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(
+            self.client
+                .post(url)
+                .json(&serde_json::json!({ "index": index })),
+        )
+        .await
     }
 
     /// 移动远端队列中的某一项。
@@ -331,17 +289,12 @@ impl ApiClient {
     /// - `MeloResult<PlayerSnapshot>`：最新快照
     pub async fn queue_move(&self, from: usize, to: usize) -> MeloResult<PlayerSnapshot> {
         let url = format!("{}/api/queue/move", self.base_url);
-        self.client
-            .post(url)
-            .json(&serde_json::json!({ "from": from, "to": to }))
-            .send()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .error_for_status()
-            .map_err(|err| MeloError::Message(err.to_string()))?
-            .json()
-            .await
-            .map_err(|err| MeloError::Message(err.to_string()))
+        self.send_and_decode(
+            self.client
+                .post(url)
+                .json(&serde_json::json!({ "from": from, "to": to })),
+        )
+        .await
     }
 
     /// 设置播放器音量。

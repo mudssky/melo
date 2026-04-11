@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use utoipa::ToSchema;
 
 use crate::core::config::settings::Settings;
 use crate::core::error::{MeloError, MeloResult};
@@ -18,7 +19,7 @@ pub enum OpenTarget {
 }
 
 /// daemon 直接打开请求。
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, ToSchema)]
 pub struct OpenRequest {
     /// 用户传入的目标路径。
     pub target: String,
@@ -27,7 +28,7 @@ pub struct OpenRequest {
 }
 
 /// daemon 直接打开响应。
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, ToSchema)]
 pub struct OpenResponse {
     /// 最新播放器快照。
     pub snapshot: PlayerSnapshot,

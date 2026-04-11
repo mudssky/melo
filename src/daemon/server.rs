@@ -1,5 +1,7 @@
 use axum::Router;
 use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::daemon::app::AppState;
 
@@ -97,6 +99,10 @@ pub fn router(state: AppState) -> Router {
             "/api/ws/player",
             axum::routing::get(crate::api::ws::player_updates),
         )
+        .merge(SwaggerUi::new("/api/docs").url(
+            "/api/openapi.json",
+            crate::api::docs::MeloOpenApi::openapi(),
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

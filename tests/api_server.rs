@@ -141,12 +141,66 @@ async fn system_status_endpoint_returns_managed_identity() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let payload: melo::api::system::DaemonStatusResponse = serde_json::from_slice(&body).unwrap();
+    let payload: melo::api::response::ApiResponse<melo::api::system::DaemonStatusResponse> =
+        serde_json::from_slice(&body).unwrap();
+    let payload = payload.data.unwrap();
 
     assert_eq!(payload.backend, "noop");
     assert!(payload.instance_id.starts_with("test-instance"));
     assert!(payload.log_path.ends_with("daemon.log"));
     assert!(!payload.shutdown_requested);
+}
+
+#[tokio::test]
+async fn system_status_endpoint_wraps_payload_in_api_response() {
+    let app = melo::daemon::app::test_router().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/system/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["code"], 0);
+    assert_eq!(payload["msg"], "ok");
+    assert_eq!(payload["data"]["backend"], "noop");
+}
+
+#[tokio::test]
+async fn open_endpoint_returns_structured_error_body() {
+    let app = melo::daemon::app::test_router().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/open")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"target":"cover.jpg","mode":"replace"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["code"], 1302);
+    assert!(
+        payload["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("unsupported"))
+    );
+    assert!(payload["data"].is_null());
 }
 
 #[tokio::test]
@@ -279,6 +333,85 @@ async fn player_volume_endpoint_updates_snapshot_contract() {
                 .uri("/api/player/volume")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"volume_percent":55}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn player_volume_endpoint_returns_wrapped_snapshot() {
+    let app = melo::daemon::app::test_router().await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/player/volume")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"volume_percent":55}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["code"], 0);
+    assert_eq!(payload["data"]["volume_percent"], 55);
+}
+
+#[tokio::test]
+async fn queue_play_endpoint_returns_business_error_when_index_is_invalid() {
+    let app = melo::daemon::app::test_router().await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/queue/play")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"index":99}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["code"], 1102);
+}
+
+#[tokio::test]
+async fn openapi_json_endpoint_is_available() {
+    let app = melo::daemon::app::test_router().await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/openapi.json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(payload["openapi"].is_string());
+    assert!(payload["paths"]["/api/player/status"].is_object());
+}
+
+#[tokio::test]
+async fn docs_page_endpoint_is_available() {
+    let app = melo::daemon::app::test_router().await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/docs/")
+                .body(Body::empty())
                 .unwrap(),
         )
         .await

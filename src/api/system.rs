@@ -1,10 +1,12 @@
 use axum::{Json, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
+use crate::api::response::ApiResponse;
 use crate::daemon::app::AppState;
 
 /// 健康检查响应。
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct HealthResponse {
     /// 服务状态。
     pub status: String,
@@ -13,7 +15,7 @@ pub struct HealthResponse {
 }
 
 /// daemon 系统状态响应。
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct DaemonStatusResponse {
     /// 当前实例 ID。
     pub instance_id: String,
@@ -37,12 +39,19 @@ pub struct DaemonStatusResponse {
 /// - `state`：应用状态
 ///
 /// # 返回值
-/// - `Json<HealthResponse>`：健康检查响应
-pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
-    Json(HealthResponse {
+/// - `Json<ApiResponse<HealthResponse>>`：健康检查响应
+#[utoipa::path(
+    get,
+    path = "/api/system/health",
+    responses(
+        (status = 200, description = "daemon 健康状态", body = crate::api::response::ApiResponse<HealthResponse>)
+    )
+)]
+pub async fn health(State(state): State<AppState>) -> Json<ApiResponse<HealthResponse>> {
+    Json(ApiResponse::ok(HealthResponse {
         status: "ok".to_string(),
         instance_id: state.system_status().instance_id,
-    })
+    }))
 }
 
 /// 返回 daemon 的系统身份与运行状态。
@@ -51,9 +60,16 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 /// - `state`：应用状态
 ///
 /// # 返回值
-/// - `Json<DaemonStatusResponse>`：系统状态响应
-pub async fn status(State(state): State<AppState>) -> Json<DaemonStatusResponse> {
-    Json(state.system_status())
+/// - `Json<ApiResponse<DaemonStatusResponse>>`：系统状态响应
+#[utoipa::path(
+    get,
+    path = "/api/system/status",
+    responses(
+        (status = 200, description = "daemon 系统状态", body = crate::api::response::ApiResponse<DaemonStatusResponse>)
+    )
+)]
+pub async fn status(State(state): State<AppState>) -> Json<ApiResponse<DaemonStatusResponse>> {
+    Json(ApiResponse::ok(state.system_status()))
 }
 
 /// 请求 daemon 优雅退出。
@@ -62,8 +78,17 @@ pub async fn status(State(state): State<AppState>) -> Json<DaemonStatusResponse>
 /// - `state`：应用状态
 ///
 /// # 返回值
-/// - `StatusCode`：接受关闭请求时返回 `202 Accepted`
-pub async fn shutdown(State(state): State<AppState>) -> StatusCode {
+/// - `(StatusCode, Json<ApiResponse<serde_json::Value>>)`：接受关闭请求时返回统一成功响应
+#[utoipa::path(
+    post,
+    path = "/api/system/shutdown",
+    responses(
+        (status = 202, description = "daemon 已收到关闭请求", body = crate::api::response::ApiResponse<serde_json::Value>)
+    )
+)]
+pub async fn shutdown(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     state.request_shutdown();
-    StatusCode::ACCEPTED
+    (StatusCode::ACCEPTED, Json(ApiResponse::ok_empty()))
 }

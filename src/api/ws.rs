@@ -13,6 +13,13 @@ use crate::daemon::app::AppState;
 ///
 /// # 返回值
 /// - `Response`：升级响应
+#[utoipa::path(
+    get,
+    path = "/api/ws/player",
+    responses(
+        (status = 101, description = "升级为播放器快照 WebSocket 流")
+    )
+)]
 pub async fn player_updates(socket: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     socket.on_upgrade(move |websocket| stream_player_snapshots(websocket, state))
 }

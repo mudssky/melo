@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// 播放器生命周期状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -63,7 +64,7 @@ impl RepeatMode {
 }
 
 /// 对外暴露的播放器错误信息。
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
 pub struct PlayerErrorInfo {
     /// 稳定错误码，供 CLI / TUI / API 统一解释。
     pub code: String,
@@ -72,7 +73,7 @@ pub struct PlayerErrorInfo {
 }
 
 /// 播放队列中的单项。
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct QueueItem {
     /// 歌曲 ID。
     pub song_id: i64,
@@ -85,7 +86,7 @@ pub struct QueueItem {
 }
 
 /// 当前正在播放的歌曲摘要。
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct NowPlayingSong {
     /// 歌曲 ID。
     pub song_id: i64,
@@ -96,7 +97,7 @@ pub struct NowPlayingSong {
 }
 
 /// 对外暴露的播放器状态快照。
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct PlayerSnapshot {
     /// 当前激活的播放后端名称。
     pub backend_name: String,

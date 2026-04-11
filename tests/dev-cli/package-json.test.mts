@@ -40,4 +40,16 @@ describe('package metadata for the global dev CLI workflow', () => {
       'watchexec --postpone --watch src --watch bin --watch Cargo.toml --watch Cargo.lock --watch config.dev.toml --watch package.json --ignore target --ignore node_modules --ignore .git --ignore local --shell=none -- pnpm install:dev:safe',
     )
   })
+
+  it('defines the API docs scripts', () => {
+    expect(packageJson.scripts['docs:api']).toBe(
+      'cargo run --quiet --bin export_openapi -- docs/openapi/melo.openapi.json',
+    )
+    expect(packageJson.scripts['docs:api:check']).toBe(
+      'node ./scripts/api-docs/check-openapi.cjs',
+    )
+    expect(packageJson.scripts['docs:api:serve']).toBe(
+      'node ./scripts/api-docs/check-openapi.cjs --print-url',
+    )
+  })
 })
