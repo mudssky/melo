@@ -2,7 +2,7 @@ use crate::core::config::settings::Settings;
 use crate::core::error::MeloResult;
 use crate::domain::library::repository::{LibraryRepository, SongRecord};
 use crate::domain::playlist::query::SmartQuery;
-use crate::domain::playlist::repository::PlaylistRepository;
+use crate::domain::playlist::repository::{PlaylistRepository, StoredPlaylist};
 
 /// 统一后的歌单摘要。
 #[derive(Debug, Clone)]
@@ -71,7 +71,33 @@ impl PlaylistService {
         self.repository.add_songs(name, song_ids).await
     }
 
-    /// 列出 static + smart 统一视图。
+    /// 复用或创建临时歌单。
+    ///
+    /// # 参数
+    /// - `name`：歌单显示名
+    /// - `source_kind`：来源类型
+    /// - `source_key`：来源唯一键
+    /// - `visible`：是否在常规列表中可见
+    /// - `expires_at`：可选过期时间
+    /// - `song_ids`：歌单成员歌曲 ID 列表
+    ///
+    /// # 返回
+    /// - `MeloResult<StoredPlaylist>`：写入后的歌单记录
+    pub async fn upsert_ephemeral(
+        &self,
+        name: &str,
+        source_kind: &str,
+        source_key: &str,
+        visible: bool,
+        expires_at: Option<&str>,
+        song_ids: &[i64],
+    ) -> MeloResult<StoredPlaylist> {
+        self.repository
+            .upsert_ephemeral(name, source_kind, source_key, visible, expires_at, song_ids)
+            .await
+    }
+
+    /// 列出 static + visible ephemeral + smart 统一视图。
     ///
     /// # 参数
     /// - 无
@@ -81,12 +107,12 @@ impl PlaylistService {
     pub async fn list_all(&self) -> MeloResult<Vec<PlaylistSummary>> {
         let mut playlists = self
             .repository
-            .list_static()
+            .list_visible()
             .await?
             .into_iter()
             .map(|playlist| PlaylistSummary {
                 name: playlist.name,
-                kind: "static".to_string(),
+                kind: playlist.kind,
                 count: playlist.count,
             })
             .collect::<Vec<_>>();
@@ -102,6 +128,51 @@ impl PlaylistService {
         }
 
         Ok(playlists)
+    }
+
+    /// 列出所有在常规列表中可见的已持久化歌单。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `MeloResult<Vec<PlaylistSummary>>`：可见歌单摘要
+    pub async fn list_visible(&self) -> MeloResult<Vec<PlaylistSummary>> {
+        self.repository.list_visible().await.map(|playlists| {
+            playlists
+                .into_iter()
+                .map(|playlist| PlaylistSummary {
+                    name: playlist.name,
+                    kind: playlist.kind,
+                    count: playlist.count,
+                })
+                .collect()
+        })
+    }
+
+    /// 将临时歌单提升为正式静态歌单。
+    ///
+    /// # 参数
+    /// - `source_key`：来源唯一键
+    /// - `new_name`：新的静态歌单名
+    ///
+    /// # 返回
+    /// - `MeloResult<()>`：提升结果
+    pub async fn promote_ephemeral(&self, source_key: &str, new_name: &str) -> MeloResult<()> {
+        self.repository
+            .promote_ephemeral(source_key, new_name)
+            .await
+    }
+
+    /// 清理已经过期的临时歌单。
+    ///
+    /// # 参数
+    /// - `now_text`：当前时间文本
+    ///
+    /// # 返回
+    /// - `MeloResult<u64>`：删除数量
+    pub async fn cleanup_expired(&self, now_text: &str) -> MeloResult<u64> {
+        self.repository.cleanup_expired(now_text).await
     }
 
     /// 预览歌单内容。
