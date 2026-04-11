@@ -11,6 +11,7 @@ async fn tui_space_key_maps_to_toggle_command() {
 async fn tui_updates_player_snapshot_from_ws_messages() {
     let mut app = melo::tui::app::App::new_for_test();
     app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
+        backend_name: "noop".into(),
         playback_state: "playing".into(),
         current_song: Some(melo::core::model::player::NowPlayingSong {
             song_id: 1,
@@ -39,6 +40,7 @@ async fn tui_updates_player_snapshot_from_ws_messages() {
 async fn tui_applies_navigation_flags_and_last_error_from_snapshot() {
     let mut app = melo::tui::app::App::new_for_test();
     app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
+        backend_name: "noop".into(),
         playback_state: "error".into(),
         current_song: None,
         queue_len: 2,
@@ -83,6 +85,7 @@ fn tui_song_rows_measure_cjk_width_correctly() {
 fn playback_label_renders_progress_window() {
     let label =
         melo::tui::ui::playbar::playback_label(&melo::core::model::player::PlayerSnapshot {
+            backend_name: "noop".into(),
             playback_state: "playing".into(),
             current_song: Some(melo::core::model::player::NowPlayingSong {
                 song_id: 1,
@@ -112,6 +115,7 @@ fn playback_label_renders_progress_window() {
 fn footer_status_includes_volume_and_repeat_mode() {
     let mut app = melo::tui::app::App::new_for_test();
     app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
+        backend_name: "noop".into(),
         playback_state: "playing".into(),
         current_song: None,
         queue_len: 2,

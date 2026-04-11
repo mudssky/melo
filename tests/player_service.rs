@@ -21,6 +21,10 @@ impl Default for FakeBackend {
 }
 
 impl PlaybackBackend for FakeBackend {
+    fn backend_name(&self) -> &'static str {
+        "fake"
+    }
+
     fn load_and_play(
         &self,
         path: &std::path::Path,

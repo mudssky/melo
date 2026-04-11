@@ -98,6 +98,8 @@ pub struct NowPlayingSong {
 /// 对外暴露的播放器状态快照。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct PlayerSnapshot {
+    /// 当前激活的播放后端名称。
+    pub backend_name: String,
     /// 播放状态。
     pub playback_state: String,
     /// 当前歌曲。
@@ -138,6 +140,7 @@ impl Default for PlayerSnapshot {
     /// - `Self`：默认播放器快照
     fn default() -> Self {
         Self {
+            backend_name: "unknown".to_string(),
             playback_state: PlaybackState::Idle.as_str().to_string(),
             current_song: None,
             queue_len: 0,

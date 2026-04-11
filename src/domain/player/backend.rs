@@ -21,6 +21,15 @@ pub enum PlaybackCommand {
 
 /// 播放后端抽象，便于测试替身与真实音频输出解耦。
 pub trait PlaybackBackend: Send + Sync {
+    /// 返回当前后端的稳定名称。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `&'static str`：后端稳定名称
+    fn backend_name(&self) -> &'static str;
+
     /// 加载并立即播放文件。
     ///
     /// # 参数
@@ -95,6 +104,10 @@ pub trait PlaybackBackend: Send + Sync {
 pub struct NoopBackend;
 
 impl PlaybackBackend for NoopBackend {
+    fn backend_name(&self) -> &'static str {
+        "noop"
+    }
+
     fn load_and_play(
         &self,
         _path: &std::path::Path,

@@ -56,6 +56,7 @@ impl Default for PlayerSession {
 /// 播放服务，负责维护播放器会话、协调后端并发布统一快照。
 pub struct PlayerService {
     backend: Arc<dyn PlaybackBackend>,
+    backend_name: &'static str,
     session: Mutex<PlayerSession>,
     snapshot_tx: watch::Sender<PlayerSnapshot>,
 }
@@ -70,9 +71,12 @@ impl PlayerService {
     /// - `Self`：播放服务
     pub fn new(backend: Arc<dyn PlaybackBackend>) -> Self {
         let session = PlayerSession::default();
-        let (snapshot_tx, _snapshot_rx) = watch::channel(Self::snapshot_from_session(&session));
+        let backend_name = backend.backend_name();
+        let (snapshot_tx, _snapshot_rx) =
+            watch::channel(Self::snapshot_from_session(&session, backend_name));
         Self {
             backend,
+            backend_name,
             session: Mutex::new(session),
             snapshot_tx,
         }
@@ -260,7 +264,7 @@ impl PlayerService {
     pub async fn pause(&self) -> MeloResult<PlayerSnapshot> {
         let mut session = self.session.lock().await;
         if session.playback_state != PlaybackState::Playing {
-            return Ok(Self::snapshot_from_session(&session));
+            return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
         self.backend.pause()?;
@@ -299,7 +303,7 @@ impl PlayerService {
     pub async fn resume(&self) -> MeloResult<PlayerSnapshot> {
         let mut session = self.session.lock().await;
         if session.playback_state != PlaybackState::Paused {
-            return Ok(Self::snapshot_from_session(&session));
+            return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
         self.backend.resume()?;
@@ -324,7 +328,7 @@ impl PlayerService {
         };
 
         if session.playback_state == target_state {
-            return Ok(Self::snapshot_from_session(&session));
+            return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
         self.backend.stop()?;
@@ -457,7 +461,7 @@ impl PlayerService {
     /// - `PlayerSnapshot`：当前快照
     pub async fn snapshot(&self) -> PlayerSnapshot {
         let session = self.session.lock().await;
-        Self::snapshot_from_session(&session)
+        Self::snapshot_from_session(&session, self.backend_name)
     }
 
     /// 导出当前播放器会话，用于持久化保存。
@@ -514,7 +518,7 @@ impl PlayerService {
         let mut session = self.session.lock().await;
         let clamped = volume_percent.min(100);
         if session.volume_percent == clamped && !session.muted {
-            return Ok(Self::snapshot_from_session(&session));
+            return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
         session.volume_percent = clamped;
@@ -533,7 +537,7 @@ impl PlayerService {
     pub async fn mute(&self) -> MeloResult<PlayerSnapshot> {
         let mut session = self.session.lock().await;
         if session.muted {
-            return Ok(Self::snapshot_from_session(&session));
+            return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
         session.muted = true;
@@ -551,7 +555,7 @@ impl PlayerService {
     pub async fn unmute(&self) -> MeloResult<PlayerSnapshot> {
         let mut session = self.session.lock().await;
         if !session.muted {
-            return Ok(Self::snapshot_from_session(&session));
+            return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
         session.muted = false;
@@ -569,7 +573,7 @@ impl PlayerService {
     pub async fn set_repeat_mode(&self, repeat_mode: RepeatMode) -> MeloResult<PlayerSnapshot> {
         let mut session = self.session.lock().await;
         if session.repeat_mode == repeat_mode {
-            return Ok(Self::snapshot_from_session(&session));
+            return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
         session.repeat_mode = repeat_mode;
@@ -586,7 +590,7 @@ impl PlayerService {
     pub async fn set_shuffle_enabled(&self, enabled: bool) -> MeloResult<PlayerSnapshot> {
         let mut session = self.session.lock().await;
         if session.shuffle_enabled == enabled {
-            return Ok(Self::snapshot_from_session(&session));
+            return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
         session.shuffle_enabled = enabled;
@@ -676,7 +680,7 @@ impl PlayerService {
     ///
     /// # 返回值
     /// - `PlayerSnapshot`：对外快照
-    fn snapshot_from_session(session: &PlayerSession) -> PlayerSnapshot {
+    fn snapshot_from_session(session: &PlayerSession, backend_name: &str) -> PlayerSnapshot {
         let current_song = session.queue.current().map(|item| NowPlayingSong {
             song_id: item.song_id,
             title: item.title.clone(),
@@ -684,6 +688,7 @@ impl PlayerService {
         });
         let navigation = Self::navigation(session);
         PlayerSnapshot {
+            backend_name: backend_name.to_string(),
             playback_state: session.playback_state.as_str().to_string(),
             current_song: current_song.clone(),
             queue_len: session.queue.len(),
@@ -722,7 +727,7 @@ impl PlayerService {
     /// - `MeloResult<PlayerSnapshot>`：最新快照
     fn publish_locked(&self, session: &mut PlayerSession) -> MeloResult<PlayerSnapshot> {
         session.version += 1;
-        let snapshot = Self::snapshot_from_session(session);
+        let snapshot = Self::snapshot_from_session(session, self.backend_name);
         self.snapshot_tx.send_replace(snapshot.clone());
         Ok(snapshot)
     }

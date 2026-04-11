@@ -35,6 +35,10 @@ impl EventedBackend {
 }
 
 impl PlaybackBackend for EventedBackend {
+    fn backend_name(&self) -> &'static str {
+        "evented"
+    }
+
     fn load_and_play(
         &self,
         path: &std::path::Path,

@@ -82,6 +82,10 @@ impl FakeBackend {
 }
 
 impl PlaybackBackend for FakeBackend {
+    fn backend_name(&self) -> &'static str {
+        "fake"
+    }
+
     fn load_and_play(
         &self,
         path: &std::path::Path,
@@ -437,4 +441,13 @@ async fn repeated_stop_does_not_bump_version_or_backend_commands() {
             .count(),
         1
     );
+}
+
+#[tokio::test]
+async fn snapshot_includes_backend_name() {
+    let backend = std::sync::Arc::new(crate::domain::player::backend::NoopBackend);
+    let service = crate::domain::player::service::PlayerService::new(backend);
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(snapshot.backend_name, "noop");
 }

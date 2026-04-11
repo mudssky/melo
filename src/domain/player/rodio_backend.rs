@@ -75,6 +75,17 @@ fn should_emit_track_end(active_generation: u64, generation: u64, player_is_empt
 }
 
 impl PlaybackBackend for RodioBackend {
+    /// 返回当前后端名称。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `&'static str`：后端稳定名称
+    fn backend_name(&self) -> &'static str {
+        "rodio"
+    }
+
     /// 加载并立即播放给定文件。
     ///
     /// # 参数

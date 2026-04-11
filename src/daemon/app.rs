@@ -4,7 +4,7 @@ use crate::core::config::settings::Settings;
 use crate::core::error::MeloResult;
 use crate::domain::library::service::LibraryService;
 use crate::domain::player::backend::{NoopBackend, PlaybackBackend};
-use crate::domain::player::rodio_backend::RodioBackend;
+use crate::domain::player::factory;
 use crate::domain::player::service::PlayerService;
 use crate::domain::player::session_store::PlayerSessionStore;
 use crate::domain::playlist::service::PlaylistService;
@@ -30,7 +30,7 @@ impl AppState {
     /// - `MeloResult<Self>`：生产用应用状态
     pub fn new() -> MeloResult<Self> {
         let settings = Settings::load()?;
-        let backend = Arc::new(RodioBackend::new()?);
+        let backend = factory::build_backend(&settings)?;
         Ok(Self::with_backend_and_settings(
             backend,
             settings,
