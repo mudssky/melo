@@ -129,6 +129,16 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
             .await?;
         }
         Some(Command::Daemon {
+            command: Some(DaemonCommand::Status),
+        }) => {
+            let registration = crate::daemon::registry::load_registration()
+                .await?
+                .ok_or_else(|| {
+                    crate::core::error::MeloError::Message("daemon_not_running".to_string())
+                })?;
+            println!("{}", serde_json::to_string_pretty(&registration).unwrap());
+        }
+        Some(Command::Daemon {
             command: Some(DaemonCommand::Stop),
         }) => {
             daemon_client()

@@ -60,6 +60,8 @@ pub enum PlayerCommand {
 /// Daemon 生命周期相关子命令。
 #[derive(Debug, Subcommand)]
 pub enum DaemonCommand {
+    #[command(about = "Print the currently registered Melo daemon metadata")]
+    Status,
     #[command(about = "Gracefully stop the running Melo daemon")]
     Stop,
 }

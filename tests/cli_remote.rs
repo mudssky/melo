@@ -252,3 +252,46 @@ async fn daemon_stop_command_shuts_down_registered_server() {
 
     server.await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn daemon_status_command_prints_registered_metadata() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+    std::fs::write(
+        &state_file,
+        serde_json::json!({
+            "base_url": "http://127.0.0.1:38123",
+            "pid": 4242,
+            "started_at": "2026-04-11T18:30:00Z",
+            "version": env!("CARGO_PKG_VERSION"),
+            "backend": "mpv",
+            "host": "127.0.0.1",
+            "port": 38123
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("daemon").arg("status");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("\"backend\": \"mpv\""))
+        .stdout(predicate::str::contains("\"port\": 38123"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn daemon_status_command_reports_missing_registration() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("daemon").arg("status");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("daemon_not_running"));
+}
