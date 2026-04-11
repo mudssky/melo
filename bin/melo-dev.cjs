@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-const os = require("node:os");
-const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const os = require('node:os')
+const path = require('node:path')
+const { spawnSync } = require('node:child_process')
 
 /**
  * 解析仓库根目录。
@@ -11,7 +11,7 @@ const { spawnSync } = require("node:child_process");
  * @returns {string} 仓库根目录绝对路径
  */
 function resolveRepoRoot(scriptPath = __filename) {
-  return path.resolve(path.dirname(scriptPath), "..");
+  return path.resolve(path.dirname(scriptPath), '..')
 }
 
 /**
@@ -22,7 +22,9 @@ function resolveRepoRoot(scriptPath = __filename) {
  * @returns {string} Cargo home 绝对路径
  */
 function resolveCargoHome(env = process.env, homeDir = os.homedir()) {
-  return env.CARGO_HOME ? path.resolve(env.CARGO_HOME) : path.join(homeDir, ".cargo");
+  return env.CARGO_HOME
+    ? path.resolve(env.CARGO_HOME)
+    : path.join(homeDir, '.cargo')
 }
 
 /**
@@ -38,10 +40,10 @@ function resolveBinaryPath(
   platform = process.platform,
   homeDir = os.homedir(),
 ) {
-  const cargoHome = resolveCargoHome(env, homeDir);
-  const binaryName = platform === "win32" ? "melo.exe" : "melo";
+  const cargoHome = resolveCargoHome(env, homeDir)
+  const binaryName = platform === 'win32' ? 'melo.exe' : 'melo'
 
-  return path.join(cargoHome, "bin", binaryName);
+  return path.join(cargoHome, 'bin', binaryName)
 }
 
 /**
@@ -53,13 +55,13 @@ function resolveBinaryPath(
  */
 function buildChildEnv(env = process.env, repoRoot = resolveRepoRoot()) {
   if (env.MELO_CONFIG) {
-    return { ...env };
+    return { ...env }
   }
 
   return {
     ...env,
-    MELO_CONFIG: path.join(repoRoot, "config.dev.toml"),
-  };
+    MELO_CONFIG: path.join(repoRoot, 'config.dev.toml'),
+  }
 }
 
 /**
@@ -77,28 +79,29 @@ function buildChildEnv(env = process.env, repoRoot = resolveRepoRoot()) {
  * @returns {number} 子进程退出码
  */
 function run(argv = process.argv.slice(2), options = {}) {
-  const repoRoot = options.repoRoot ?? resolveRepoRoot(options.scriptPath ?? __filename);
-  const env = buildChildEnv(options.env ?? process.env, repoRoot);
+  const repoRoot =
+    options.repoRoot ?? resolveRepoRoot(options.scriptPath ?? __filename)
+  const env = buildChildEnv(options.env ?? process.env, repoRoot)
   const binaryPath = resolveBinaryPath(
     env,
     options.platform ?? process.platform,
     options.homeDir ?? os.homedir(),
-  );
+  )
   const result = (options.spawnSyncImpl ?? spawnSync)(binaryPath, argv, {
     cwd: repoRoot,
     env,
-    stdio: "inherit",
-  });
+    stdio: 'inherit',
+  })
 
   if (result.error) {
-    throw result.error;
+    throw result.error
   }
 
-  return typeof result.status === "number" ? result.status : 1;
+  return typeof result.status === 'number' ? result.status : 1
 }
 
 if (require.main === module) {
-  process.exit(run());
+  process.exit(run())
 }
 
 module.exports = {
@@ -107,4 +110,4 @@ module.exports = {
   resolveCargoHome,
   resolveRepoRoot,
   run,
-};
+}
