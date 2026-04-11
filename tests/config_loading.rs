@@ -49,3 +49,11 @@ cwd_dir = true
     assert!(!settings.playlists.ephemeral.visibility.path_dir);
     assert!(settings.playlists.ephemeral.visibility.cwd_dir);
 }
+
+#[test]
+fn config_example_toml_parses_successfully() {
+    assert!(std::path::Path::new("config.example.toml").exists());
+    let settings = Settings::load_from_path("config.example.toml").unwrap();
+    assert_eq!(settings.player.volume, 100);
+    assert_eq!(settings.playlists.ephemeral.default_ttl_seconds, 0);
+}

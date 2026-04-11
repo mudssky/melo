@@ -1,0 +1,50 @@
+# Melo 示例配置。复制为 config.toml 或通过 MELO_CONFIG 指定。
+
+[database]
+# SQLite 数据库文件路径。
+path = "local/melo.db"
+
+[player]
+# 无恢复会话时的默认音量。
+volume = 100
+# 是否恢复上一次 daemon 会话。
+restore_last_session = true
+# 恢复后是否自动继续播放。
+resume_after_restore = false
+
+[open]
+# 裸 `melo` 是否先尝试扫描当前目录。
+scan_current_dir = true
+# 目录型打开的递归深度。
+max_depth = 2
+# 进入 TUI 前同步预热的曲目数。
+prewarm_limit = 20
+# 后台补扫并发度。
+background_jobs = 4
+
+[playlists.ephemeral]
+# 默认 TTL，单位为秒。`0` 表示永不过期。
+default_ttl_seconds = 0
+
+[playlists.ephemeral.visibility]
+# 单文件临时歌单是否出现在常规列表中。
+path_file = false
+# 目录临时歌单是否出现在常规列表中。
+path_dir = true
+# 当前目录临时歌单是否出现在常规列表中。
+cwd_dir = true
+
+[library.organize]
+# 文件整理的基础目录。
+base_dir = "D:/Library"
+# 冲突处理策略。
+conflict_policy = "first_match"
+
+[[library.organize.rules]]
+name = "default"
+priority = 0
+template = "{{ artist|sanitize }}/{{ album|default('Unknown Album')|sanitize }}/{{ title|sanitize }}"
+
+[playlists.smart.aimer]
+query = "artist:\"Aimer\""
+description = "All songs whose artist contains Aimer"

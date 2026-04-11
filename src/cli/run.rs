@@ -1,7 +1,7 @@
 use clap::Parser;
 
 use crate::cli::args::{
-    CliArgs, Command, DbCommand, PlayerCommand, PlayerModeCommand, QueueCommand,
+    CliArgs, Command, DbCommand, PlayerCommand, PlayerModeCommand, PlaylistCommand, QueueCommand,
 };
 use crate::core::error::MeloResult;
 
@@ -216,6 +216,32 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
                 .queue_play_index(index)
                 .await?;
             println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+        }
+        Some(Command::Playlist {
+            command:
+                PlaylistCommand::Promote {
+                    source_key,
+                    new_name,
+                },
+        }) => {
+            let settings = crate::core::config::settings::Settings::load()?;
+            crate::domain::playlist::service::PlaylistService::new(settings)
+                .promote_ephemeral(&source_key, &new_name)
+                .await?;
+            println!("{new_name}");
+        }
+        Some(Command::Playlist {
+            command: PlaylistCommand::Cleanup { expired },
+        }) => {
+            if expired {
+                let settings = crate::core::config::settings::Settings::load()?;
+                let deleted = crate::domain::playlist::service::PlaylistService::new(settings)
+                    .cleanup_expired(&crate::core::db::now_text())
+                    .await?;
+                println!("{deleted}");
+            } else {
+                println!("0");
+            }
         }
         Some(Command::Db {
             command: DbCommand::Path,

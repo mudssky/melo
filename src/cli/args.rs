@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
     version,
     about = "Daemon-backed local music library manager",
     long_about = "Daemon-backed local music library manager for scanning, organizing, querying, and remotely controlling local playback.",
-    after_help = "Examples:\n  melo daemon\n  melo status\n  melo library scan D:/Music\n  melo playlist preview aimer"
+    after_help = "Examples:\n  melo\n  melo D:/Music\n  melo daemon\n  melo status\n  melo playlist cleanup"
 )]
 pub struct CliArgs {
     /// 顶层子命令。
@@ -57,6 +57,21 @@ pub enum PlayerCommand {
     },
 }
 
+/// 播放列表维护子命令。
+#[derive(Debug, Subcommand)]
+pub enum PlaylistCommand {
+    #[command(about = "Promote an ephemeral playlist into a visible static playlist")]
+    Promote {
+        source_key: String,
+        new_name: String,
+    },
+    #[command(about = "Delete expired ephemeral playlists")]
+    Cleanup {
+        #[arg(long, default_value_t = true)]
+        expired: bool,
+    },
+}
+
 /// Melo 第一层命令定义。
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -101,11 +116,14 @@ pub enum Command {
         command: QueueCommand,
     },
     #[command(
-        about = "Manage static playlists and preview smart playlist results",
-        long_about = "Manage static playlists and preview smart playlist results so users can distinguish saved membership changes from query-only previews.",
-        after_help = "Examples:\n  melo playlist add Favorites 12 42\n  melo playlist preview aimer"
+        about = "Maintain direct-open ephemeral playlists",
+        long_about = "Maintain direct-open ephemeral playlists, including promotion into visible static playlists and cleanup of expired ephemeral records.",
+        after_help = "Examples:\n  melo playlist promote D:/Music/blue-bird.mp3 Favorites\n  melo playlist cleanup"
     )]
-    Playlist,
+    Playlist {
+        #[command(subcommand)]
+        command: PlaylistCommand,
+    },
     #[command(
         about = "Inspect and maintain the Melo database",
         long_about = "Inspect and maintain the Melo database, including path discovery, health checks, backups, and low-level maintenance tasks.",

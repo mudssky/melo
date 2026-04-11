@@ -36,19 +36,30 @@ fn library_help_describes_scan_and_organize_boundaries() {
 }
 
 #[test]
-fn playlist_help_includes_preview_examples() {
+fn playlist_help_includes_maintenance_examples() {
     let mut cmd = Command::cargo_bin("melo").unwrap();
     cmd.arg("playlist").arg("--help");
 
     cmd.assert()
         .success()
         .stdout(predicate::str::contains(
-            "Manage static playlists and preview smart playlist results",
+            "Maintain direct-open ephemeral playlists",
         ))
         .stdout(predicate::str::contains(
-            "melo playlist add Favorites 12 42",
+            "melo playlist promote D:/Music/blue-bird.mp3 Favorites",
         ))
-        .stdout(predicate::str::contains("melo playlist preview aimer"));
+        .stdout(predicate::str::contains("melo playlist cleanup"));
+}
+
+#[test]
+fn playlist_help_mentions_promote_and_cleanup() {
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.arg("playlist").arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("promote"))
+        .stdout(predicate::str::contains("cleanup"));
 }
 
 #[test]
