@@ -309,7 +309,7 @@
 推荐约定：
 
 - `expires_at = NULL` 表示永不过期
-- 配置层允许设置“默认 TTL 天数”
+- 配置层允许设置“默认 TTL 秒数”
 - 仅当该值大于 0 时，创建临时播放列表时才计算过期时间
 
 ### 8.4 清理命令
@@ -518,7 +518,7 @@ prewarm_limit = 20
 background_jobs = 4
 
 [playlists.ephemeral]
-default_ttl_days = 0
+default_ttl_seconds = 0
 
 [playlists.ephemeral.visibility]
 path_file = false
@@ -542,7 +542,7 @@ cwd_dir = true
   - 先保证可播放的预热条目数
 - `open.background_jobs`
   - 后台补扫并发数
-- `playlists.ephemeral.default_ttl_days`
+- `playlists.ephemeral.default_ttl_seconds`
   - `0` 表示默认永不过期
 
 ### 13.3 与现有会话恢复的关系
