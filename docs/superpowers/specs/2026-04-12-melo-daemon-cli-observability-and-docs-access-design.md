@@ -211,11 +211,20 @@
 
 语义为：
 
-- 输出当前 daemon 文档入口 URL
+- 默认直接打开当前 daemon 文档页面
 - 若文档禁用，则明确输出禁用状态
 - 若 daemon 未启动，则输出统一友好提示
 
-这比要求用户记住固定路径或去看 `package.json` 脚本更直接。
+默认打开目标为：
+
+- `/api/docs/`
+
+同时保留脚本化能力，建议支持显式参数：
+
+- `--print`：只打印文档 URL
+- `--openapi`：面向 OpenAPI JSON 地址
+
+这样既能减少日常使用时的用户操作，也能保留自动化和复制链接的场景。
 
 ### 6.3 与 `docs:api:serve` 的关系
 
@@ -316,6 +325,22 @@
 - `docs: http://127.0.0.1:PORT/api/docs/`
 - 或 `docs: disabled`
 
+### 8.4 文档命令的 URL 策略
+
+`melo daemon docs` 默认应打开 Swagger 文档页面，而不是 OpenAPI JSON。
+
+原因是：
+
+- 页面更适合人工浏览
+- 更符合“减少用户操作”的目标
+- OpenAPI JSON 更适合脚本或工具链消费
+
+因此默认行为为：
+
+- 打开 `/api/docs/`
+
+只有在显式指定 `--openapi` 时，才面向 `/api/openapi.json`。
+
 ### 8.3 URL 选择原则
 
 在 `local` 模式下，即使 daemon 当前注册地址不是 loopback，也建议对 CLI 展示一个本机访问形式的文档 URL。
@@ -351,6 +376,7 @@
 - daemon 未启动时 `melo status` 输出友好提示
 - daemon 未启动时至少一个其他观察类命令复用同一提示逻辑
 - `melo daemon docs` 在 `local` 模式下输出本机文档 URL
+- `melo daemon docs` 默认会打开 Swagger 文档页面
 - `melo daemon docs` 在 `disabled` 模式下输出禁用提示
 - 文档路由在 `local` 模式下拒绝非本机访问
 - `melo status` 在 daemon 运行时显示 docs URL 或 docs 状态
