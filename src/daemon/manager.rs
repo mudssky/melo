@@ -221,6 +221,46 @@ pub async fn read_logs_with_paths(paths: &DaemonPaths, tail: usize) -> MeloResul
     Ok(tail_lines(&contents, tail))
 }
 
+/// 跟随输出 daemon 日志文件。
+///
+/// # 参数
+/// - `paths`：运行期文件路径
+/// - `tail`：首次输出的尾部行数
+/// - `writer`：输出目标
+///
+/// # 返回值
+/// - `MeloResult<()>`：输出结果
+pub async fn follow_logs_with_paths(
+    paths: &DaemonPaths,
+    tail: usize,
+    writer: &mut impl std::io::Write,
+) -> MeloResult<()> {
+    let mut seen_len = 0usize;
+
+    loop {
+        let contents = tokio::fs::read_to_string(&paths.log_file)
+            .await
+            .unwrap_or_default();
+        if seen_len == 0 {
+            let initial = tail_lines(&contents, tail);
+            if !initial.is_empty() {
+                writeln!(writer, "{initial}").map_err(|err| MeloError::Message(err.to_string()))?;
+                writer
+                    .flush()
+                    .map_err(|err| MeloError::Message(err.to_string()))?;
+            }
+        } else if contents.len() > seen_len {
+            write!(writer, "{}", &contents[seen_len..])
+                .map_err(|err| MeloError::Message(err.to_string()))?;
+            writer
+                .flush()
+                .map_err(|err| MeloError::Message(err.to_string()))?;
+        }
+        seen_len = contents.len();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
 /// 保留文本的最后 N 行。
 ///
 /// # 参数

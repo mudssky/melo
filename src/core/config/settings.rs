@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use camino::Utf8PathBuf;
 use serde::Deserialize;
 
+use crate::core::config::paths;
 use crate::core::error::{MeloError, MeloResult};
 
 /// 数据库相关配置。
@@ -15,7 +17,35 @@ pub struct DatabaseSettings {
 impl Default for DatabaseSettings {
     fn default() -> Self {
         Self {
-            path: Utf8PathBuf::from("local/melo.db"),
+            path: Utf8PathBuf::from_path_buf(paths::default_database_path())
+                .expect("默认数据库路径必须是 UTF-8"),
+        }
+    }
+}
+
+/// Daemon 文档可见性模式。
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DaemonDocsMode {
+    Disabled,
+    #[default]
+    Local,
+    Network,
+}
+
+impl DaemonDocsMode {
+    /// 返回 docs 模式的稳定字符串表示。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `&'static str`：模式文本
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Local => "local",
+            Self::Network => "network",
         }
     }
 }
@@ -30,6 +60,8 @@ pub struct DaemonSettings {
     pub base_port: u16,
     /// 高位端口自动避让次数。
     pub port_search_limit: u16,
+    /// docs 对外可见性策略。
+    pub docs: DaemonDocsMode,
 }
 
 impl Default for DaemonSettings {
@@ -38,6 +70,7 @@ impl Default for DaemonSettings {
             host: "127.0.0.1".to_string(),
             base_port: 38123,
             port_search_limit: 32,
+            docs: DaemonDocsMode::Local,
         }
     }
 }
@@ -259,7 +292,10 @@ impl Settings {
     /// # 返回
     /// - `MeloResult<Self>`：解析后的配置
     pub fn load() -> MeloResult<Self> {
-        let path = std::env::var("MELO_CONFIG").unwrap_or_else(|_| "config.toml".to_string());
+        let path = std::env::var("MELO_CONFIG_PATH")
+            .or_else(|_| std::env::var("MELO_CONFIG"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| paths::default_config_path());
         Self::load_from_path(path)
     }
 
@@ -271,15 +307,18 @@ impl Settings {
     /// # 返回
     /// - `MeloResult<Self>`：解析后的配置
     pub fn load_from_path(path: impl AsRef<std::path::Path>) -> MeloResult<Self> {
+        let config_path = path.as_ref().to_path_buf();
         let builder = config::Config::builder()
-            .add_source(config::File::from(path.as_ref()).required(false))
-            .set_default("database.path", "local/melo.db")
+            .add_source(config::File::from(config_path.as_path()).required(false))
+            .set_default("database.path", "melo.db")
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("daemon.host", "127.0.0.1")
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("daemon.base_port", 38123)
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("daemon.port_search_limit", 32)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("daemon.docs", DaemonDocsMode::Local.as_str())
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("player.backend", "auto")
             .map_err(|err| MeloError::Message(err.to_string()))?
@@ -308,11 +347,21 @@ impl Settings {
             .set_default("tui.show_footer_hints", true)
             .map_err(|err| MeloError::Message(err.to_string()))?;
 
-        builder
+        let mut settings: Self = builder
             .build()
             .map_err(|err| MeloError::Message(err.to_string()))?
             .try_deserialize()
-            .map_err(|err| MeloError::Message(err.to_string()))
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+
+        let resolved_db = std::env::var("MELO_DB_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                paths::resolve_from_config_dir(&config_path, settings.database.path.as_std_path())
+            });
+        settings.database.path = Utf8PathBuf::from_path_buf(resolved_db)
+            .map_err(|_| MeloError::Message("database path must be utf-8".to_string()))?;
+
+        Ok(settings)
     }
 
     /// 为测试构造一个只指定数据库路径的配置。

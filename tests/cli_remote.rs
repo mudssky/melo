@@ -178,6 +178,22 @@ async fn status_command_uses_registered_daemon_url() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn status_command_shows_friendly_hint_when_daemon_is_unavailable() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("missing-daemon.json");
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("status");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("daemon"))
+        .stderr(predicate::str::contains("melo daemon start"))
+        .stderr(predicate::str::contains("api_error").not());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn explicit_open_command_prints_stable_error_body() {
     let app = melo::daemon::app::test_router().await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -378,13 +394,78 @@ async fn daemon_logs_command_reads_requested_tail_count() {
 
     let mut cmd = Command::cargo_bin("melo").unwrap();
     cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
-    cmd.arg("daemon").arg("logs").arg("--tail").arg("2");
+    cmd.arg("daemon")
+        .arg("logs")
+        .arg("--snapshot")
+        .arg("--tail")
+        .arg("2");
 
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("three"))
         .stdout(predicate::str::contains("four"))
         .stdout(predicate::str::contains("one").not());
+}
+
+#[tokio::test]
+async fn daemon_logs_snapshot_prints_existing_tail_without_waiting() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+    let log_file = temp.path().join("daemon.log");
+    std::fs::write(&log_file, "one\ntwo\nthree\n").unwrap();
+    std::fs::write(
+        &state_file,
+        serde_json::json!({
+            "instance_id": "test-instance-1",
+            "base_url": "http://127.0.0.1:65530",
+            "pid": std::process::id(),
+            "started_at": "2026-04-12T00:00:00Z",
+            "version": env!("CARGO_PKG_VERSION"),
+            "backend": "noop",
+            "host": "127.0.0.1",
+            "port": 65530,
+            "log_path": log_file.to_string_lossy().to_string()
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("daemon")
+        .arg("logs")
+        .arg("--snapshot")
+        .arg("--tail")
+        .arg("2");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("two"))
+        .stdout(predicate::str::contains("three"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn daemon_docs_print_outputs_local_docs_url() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let registration = state.daemon_registration(addr);
+    let app = melo::daemon::server::router(state);
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+    std::fs::write(&state_file, serde_json::to_string(&registration).unwrap()).unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("daemon").arg("docs").arg("--print");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("/api/docs/"));
 }
 
 #[tokio::test]

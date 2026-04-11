@@ -1,8 +1,8 @@
-# Melo 示例配置。复制为 config.toml 或通过 MELO_CONFIG 指定。
+# Melo 示例配置。复制为 config.toml，或通过 MELO_CONFIG_PATH / MELO_CONFIG 指定。
 
 [database]
-# SQLite 数据库文件路径。
-path = "local/melo.db"
+# SQLite 数据库文件路径。相对路径会以当前配置文件所在目录为锚点解析。
+path = "melo.db"
 
 [daemon]
 # Daemon 默认监听主机。
@@ -11,6 +11,8 @@ host = "127.0.0.1"
 base_port = 38123
 # 首选端口被占用时的自动避让次数。
 port_search_limit = 32
+# 文档访问策略：disabled / local / network。
+docs = "local"
 
 [player]
 # 后端选择：`auto`、`rodio`、`mpv`。

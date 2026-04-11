@@ -77,6 +77,15 @@ pub enum DaemonCommand {
     Logs {
         #[arg(long, default_value_t = 100)]
         tail: usize,
+        #[arg(long, default_value_t = false)]
+        snapshot: bool,
+    },
+    #[command(about = "Open or print daemon API docs")]
+    Docs {
+        #[arg(long, default_value_t = false)]
+        print: bool,
+        #[arg(long, default_value_t = false)]
+        openapi: bool,
     },
     #[command(about = "Diagnose the managed daemon")]
     Doctor {
@@ -126,7 +135,7 @@ pub enum Command {
     #[command(
         about = "Run or manage the Melo daemon",
         long_about = "Run or manage the Melo daemon.",
-        after_help = "Examples:\n  melo daemon start\n  melo daemon status --json\n  melo daemon status --verbose\n  melo daemon doctor --json\n  melo daemon logs --tail 50"
+        after_help = "Examples:\n  melo daemon start\n  melo daemon status --json\n  melo daemon status --verbose\n  melo daemon doctor --json\n  melo daemon logs --tail 50\n  melo daemon logs --snapshot --tail 50\n  melo daemon docs --print"
     )]
     Daemon {
         #[command(subcommand)]

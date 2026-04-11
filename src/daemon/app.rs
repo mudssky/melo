@@ -376,6 +376,17 @@ impl AppState {
         }
     }
 
+    /// 返回当前 docs 可见性模式。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `crate::core::config::settings::DaemonDocsMode`：docs 模式
+    pub fn docs_mode(&self) -> crate::core::config::settings::DaemonDocsMode {
+        self.settings.daemon.docs
+    }
+
     /// 请求 daemon 进入关闭流程。
     ///
     /// # 参数

@@ -53,6 +53,17 @@ impl ApiClient {
         Ok(Self::new(base_url))
     }
 
+    /// 返回客户端当前绑定的基础 URL。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `&str`：基础 URL
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     /// 发送请求并统一解包 API 响应壳。
     ///
     /// # 参数

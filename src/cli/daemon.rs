@@ -1,4 +1,5 @@
 use crate::cli::args::DaemonCommand;
+use crate::cli::observe::{ObservedDaemon, observe_read_only_daemon, print_unavailable_and_error};
 use crate::core::config::settings::Settings;
 use crate::core::error::MeloResult;
 use crate::daemon::manager;
@@ -24,10 +25,32 @@ pub async fn run_daemon_command(command: Option<DaemonCommand>) -> MeloResult<()
                 println!("{}", format_status_human(&observation, verbose));
             }
         }
-        Some(DaemonCommand::Logs { tail }) => {
-            let output = manager::read_logs_with_paths(&paths, tail).await?;
-            println!("{output}");
+        Some(DaemonCommand::Logs { tail, snapshot }) => {
+            if snapshot {
+                let output = manager::read_logs_with_paths(&paths, tail).await?;
+                println!("{output}");
+            } else {
+                let mut stdout = std::io::stdout();
+                manager::follow_logs_with_paths(&paths, tail, &mut stdout).await?;
+            }
         }
+        Some(DaemonCommand::Docs { print, openapi }) => match observe_read_only_daemon().await? {
+            ObservedDaemon::Running {
+                docs_url,
+                openapi_url,
+                ..
+            } => {
+                let url = if openapi { openapi_url } else { docs_url };
+                if print {
+                    println!("{url}");
+                } else {
+                    open_in_browser(&url)?;
+                }
+            }
+            ObservedDaemon::Unavailable { reason, hint } => {
+                return Err(print_unavailable_and_error(&reason, &hint));
+            }
+        },
         Some(DaemonCommand::Doctor { json }) => {
             let observation = crate::daemon::observe::observe_with_paths(&settings, &paths).await?;
             let report = crate::daemon::observe::build_doctor_report(&observation);
@@ -61,6 +84,35 @@ pub async fn run_daemon_command(command: Option<DaemonCommand>) -> MeloResult<()
     }
 
     Ok(())
+}
+
+/// 使用平台默认方式打开 URL。
+///
+/// # 参数
+/// - `url`：目标 URL
+///
+/// # 返回值
+/// - `MeloResult<()>`：打开结果
+fn open_in_browser(url: &str) -> MeloResult<()> {
+    #[cfg(target_os = "windows")]
+    let status = std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .status();
+
+    #[cfg(target_os = "macos")]
+    let status = std::process::Command::new("open").arg(url).status();
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    let status = std::process::Command::new("xdg-open").arg(url).status();
+
+    let status = status.map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(crate::core::error::MeloError::Message(format!(
+            "failed_to_open_url:{url}"
+        )))
+    }
 }
 
 /// 格式化人类可读的状态输出。

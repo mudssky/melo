@@ -4,6 +4,7 @@ use crate::cli::args::{
     CliArgs, Command, DaemonCommand, DbCommand, PlayerCommand, PlayerModeCommand, PlaylistCommand,
     QueueCommand,
 };
+use crate::cli::observe::{ObservedDaemon, observe_read_only_daemon, print_unavailable_and_error};
 use crate::core::error::MeloResult;
 
 /// 解析命令行参数并交给后续子命令实现。
@@ -80,11 +81,24 @@ pub async fn run() -> MeloResult<()> {
 /// - `MeloResult<()>`：执行结果
 async fn run_clap(args: CliArgs) -> MeloResult<()> {
     match args.command {
-        Some(Command::Status) => {
-            let client = daemon_client().await?;
-            let snapshot = client.status().await?;
-            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
-        }
+        Some(Command::Status) => match observe_read_only_daemon().await? {
+            ObservedDaemon::Running {
+                client, docs_url, ..
+            } => {
+                let snapshot = client.status().await?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "snapshot": snapshot,
+                        "docs": docs_url,
+                    }))
+                    .unwrap()
+                );
+            }
+            ObservedDaemon::Unavailable { reason, hint } => {
+                return Err(print_unavailable_and_error(&reason, &hint));
+            }
+        },
         Some(Command::Play) => {
             let snapshot = daemon_client_with_autostart()
                 .await?
@@ -162,10 +176,15 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
                 PlayerCommand::Mode {
                     command: PlayerModeCommand::Show,
                 },
-        }) => {
-            let snapshot = daemon_client().await?.player_mode_show().await?;
-            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
-        }
+        }) => match observe_read_only_daemon().await? {
+            ObservedDaemon::Running { client, .. } => {
+                let snapshot = client.player_mode_show().await?;
+                println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+            }
+            ObservedDaemon::Unavailable { reason, hint } => {
+                return Err(print_unavailable_and_error(&reason, &hint));
+            }
+        },
         Some(Command::Player {
             command:
                 PlayerCommand::Mode {
@@ -189,10 +208,15 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
         }
         Some(Command::Queue {
             command: QueueCommand::Show,
-        }) => {
-            let snapshot = daemon_client().await?.queue_show().await?;
-            println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
-        }
+        }) => match observe_read_only_daemon().await? {
+            ObservedDaemon::Running { client, .. } => {
+                let snapshot = client.queue_show().await?;
+                println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+            }
+            ObservedDaemon::Unavailable { reason, hint } => {
+                return Err(print_unavailable_and_error(&reason, &hint));
+            }
+        },
         Some(Command::Queue {
             command: QueueCommand::Remove { index },
         }) => {

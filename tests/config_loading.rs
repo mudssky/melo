@@ -99,3 +99,44 @@ show_footer_hints = false
     assert_eq!(settings.player.mpv.ipc_dir, "auto");
     assert!(!settings.tui.show_footer_hints);
 }
+
+#[test]
+fn settings_resolve_database_path_relative_to_config_file_directory() {
+    let temp = tempdir().unwrap();
+    let config_dir = temp.path().join("melo-root");
+    fs::create_dir_all(&config_dir).unwrap();
+    let path = config_dir.join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[database]
+path = "melo.db"
+"#,
+    )
+    .unwrap();
+
+    let settings = Settings::load_from_path(&path).unwrap();
+
+    assert_eq!(
+        settings.database.path.as_std_path(),
+        config_dir.join("melo.db").as_path()
+    );
+}
+
+#[test]
+fn settings_allow_database_path_override_from_env() {
+    let temp = tempdir().unwrap();
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("override.db");
+    fs::write(&config_path, "").unwrap();
+
+    unsafe {
+        std::env::set_var("MELO_DB_PATH", &db_path);
+    }
+    let settings = Settings::load_from_path(&config_path).unwrap();
+    unsafe {
+        std::env::remove_var("MELO_DB_PATH");
+    }
+
+    assert_eq!(settings.database.path.as_std_path(), db_path.as_path());
+}

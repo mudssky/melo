@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use axum::body::{Body, to_bytes};
+use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use futures_util::StreamExt;
 use melo::domain::player::backend::{PlaybackBackend, PlaybackCommand};
@@ -9,6 +10,21 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_tungstenite::connect_async;
 use tower::ServiceExt;
+
+/// 为测试请求补充连接来源信息。
+///
+/// # 参数
+/// - `request`：原始请求
+/// - `addr`：连接来源地址
+///
+/// # 返回值
+/// - `Request<Body>`：带连接信息的请求
+fn with_connect_info(mut request: Request<Body>, addr: &str) -> Request<Body> {
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(addr.parse::<std::net::SocketAddr>().unwrap()));
+    request
+}
 
 #[derive(Clone)]
 struct EventedBackend {
@@ -388,12 +404,13 @@ async fn queue_play_endpoint_returns_business_error_when_index_is_invalid() {
 async fn openapi_json_endpoint_is_available() {
     let app = melo::daemon::app::test_router().await;
     let response = app
-        .oneshot(
+        .oneshot(with_connect_info(
             Request::builder()
                 .uri("/api/openapi.json")
                 .body(Body::empty())
                 .unwrap(),
-        )
+            "127.0.0.1:38123",
+        ))
         .await
         .unwrap();
 
@@ -405,15 +422,56 @@ async fn openapi_json_endpoint_is_available() {
 }
 
 #[tokio::test]
-async fn docs_page_endpoint_is_available() {
-    let app = melo::daemon::app::test_router().await;
+async fn docs_route_is_disabled_when_docs_mode_is_disabled() {
+    let mut settings = melo::core::config::settings::Settings::default();
+    settings.daemon.docs = melo::core::config::settings::DaemonDocsMode::Disabled;
+    let app = melo::daemon::app::test_router_with_settings(settings).await;
+
     let response = app
-        .oneshot(
+        .oneshot(with_connect_info(
             Request::builder()
                 .uri("/api/docs/")
                 .body(Body::empty())
                 .unwrap(),
-        )
+            "127.0.0.1:38123",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn docs_route_rejects_non_loopback_when_docs_mode_is_local() {
+    let mut settings = melo::core::config::settings::Settings::default();
+    settings.daemon.docs = melo::core::config::settings::DaemonDocsMode::Local;
+    let app = melo::daemon::app::test_router_with_settings(settings).await;
+
+    let response = app
+        .oneshot(with_connect_info(
+            Request::builder()
+                .uri("/api/docs/")
+                .body(Body::empty())
+                .unwrap(),
+            "192.168.1.20:38123",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn docs_page_endpoint_is_available() {
+    let app = melo::daemon::app::test_router().await;
+    let response = app
+        .oneshot(with_connect_info(
+            Request::builder()
+                .uri("/api/docs/")
+                .body(Body::empty())
+                .unwrap(),
+            "127.0.0.1:38123",
+        ))
         .await
         .unwrap();
 
