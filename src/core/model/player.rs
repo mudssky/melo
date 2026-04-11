@@ -102,6 +102,8 @@ pub struct PlayerSnapshot {
     pub backend_name: String,
     /// 播放状态。
     pub playback_state: String,
+    /// 队列标题预览，按当前播放顺序排列。
+    pub queue_preview: Vec<String>,
     /// 当前歌曲。
     pub current_song: Option<NowPlayingSong>,
     /// 队列总长度。
@@ -142,6 +144,7 @@ impl Default for PlayerSnapshot {
         Self {
             backend_name: "unknown".to_string(),
             playback_state: PlaybackState::Idle.as_str().to_string(),
+            queue_preview: Vec::new(),
             current_song: None,
             queue_len: 0,
             queue_index: None,

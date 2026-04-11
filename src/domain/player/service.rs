@@ -690,6 +690,12 @@ impl PlayerService {
         PlayerSnapshot {
             backend_name: backend_name.to_string(),
             playback_state: session.playback_state.as_str().to_string(),
+            queue_preview: session
+                .queue
+                .items()
+                .iter()
+                .map(|item| item.title.clone())
+                .collect(),
             current_song: current_song.clone(),
             queue_len: session.queue.len(),
             queue_index: session.queue.current_index(),

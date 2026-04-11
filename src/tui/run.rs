@@ -5,20 +5,30 @@ use crossterm::event::{Event, KeyEventKind};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::core::error::{MeloError, MeloResult};
 use crate::tui::event::Action;
+
+/// TUI 启动时需要带入的上下文。
+pub struct LaunchContext {
+    /// 启动来源标签。
+    pub source_label: Option<String>,
+    /// 一次性启动提示。
+    pub startup_notice: Option<String>,
+    /// 是否显示底部快捷键提示。
+    pub footer_hints_enabled: bool,
+}
 
 /// 启动真实的 TUI 运行循环。
 ///
 /// # 参数
 /// - `base_url`：daemon HTTP 基地址
-/// - `source_label`：可选来源标签
+/// - `context`：启动上下文
 ///
 /// # 返回值
 /// - `MeloResult<()>`：运行结果
-pub async fn start(base_url: String, source_label: Option<String>) -> MeloResult<()> {
+pub async fn start(base_url: String, context: LaunchContext) -> MeloResult<()> {
     crossterm::terminal::enable_raw_mode().map_err(|err| MeloError::Message(err.to_string()))?;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen)
@@ -27,7 +37,7 @@ pub async fn start(base_url: String, source_label: Option<String>) -> MeloResult
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).map_err(|err| MeloError::Message(err.to_string()))?;
 
-    let result = run_loop(&mut terminal, base_url, source_label).await;
+    let result = run_loop(&mut terminal, base_url, context).await;
 
     let _ = crossterm::terminal::disable_raw_mode();
     let _ = crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen);
@@ -40,19 +50,21 @@ pub async fn start(base_url: String, source_label: Option<String>) -> MeloResult
 /// # 参数
 /// - `terminal`：已初始化的终端
 /// - `base_url`：daemon HTTP 基地址
-/// - `source_label`：可选来源标签
+/// - `context`：启动上下文
 ///
 /// # 返回值
 /// - `MeloResult<()>`：循环结果
 async fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     base_url: String,
-    source_label: Option<String>,
+    context: LaunchContext,
 ) -> MeloResult<()> {
     let client = crate::cli::client::ApiClient::new(base_url);
     let mut app = crate::tui::app::App::new_for_test();
     app.apply_snapshot(client.status().await?);
-    if let Some(source_label) = source_label {
+    app.footer_hints_enabled = context.footer_hints_enabled;
+    app.startup_notice = context.startup_notice;
+    if let Some(source_label) = context.source_label {
         app.set_source_label(source_label);
     }
 
@@ -60,12 +72,7 @@ async fn run_loop(
         terminal
             .draw(|frame| {
                 let layout = app.layout(frame.area());
-                let song_title = app
-                    .player
-                    .current_song
-                    .as_ref()
-                    .map(|song| song.title.as_str())
-                    .unwrap_or("Nothing Playing");
+                let queue_lines = app.render_queue_lines().join("\n");
 
                 frame.render_widget(
                     Paragraph::new("Songs")
@@ -73,8 +80,8 @@ async fn run_loop(
                     layout.sidebar,
                 );
                 frame.render_widget(
-                    Paragraph::new(song_title)
-                        .block(Block::default().borders(Borders::ALL).title("Now Playing")),
+                    Paragraph::new(queue_lines)
+                        .block(Block::default().borders(Borders::ALL).title("Queue")),
                     layout.content,
                 );
                 frame.render_widget(
@@ -86,6 +93,16 @@ async fn run_loop(
                     .block(Block::default().borders(Borders::ALL).title("Status")),
                     layout.playbar,
                 );
+
+                if app.show_help {
+                    let popup_area = crate::tui::ui::popup::centered_area(frame.area());
+                    frame.render_widget(Clear, popup_area);
+                    frame.render_widget(
+                        Paragraph::new(crate::tui::ui::popup::help_lines().join("\n"))
+                            .block(Block::default().borders(Borders::ALL).title("Help")),
+                        popup_area,
+                    );
+                }
             })
             .map_err(|err| MeloError::Message(err.to_string()))?;
 
@@ -109,6 +126,7 @@ async fn run_loop(
                     Some(Action::Prev) => {
                         app.apply_snapshot(client.post_json("/api/player/prev").await?)
                     }
+                    Some(Action::OpenHelp) => {}
                     Some(Action::Quit) => break,
                     _ => {}
                 }

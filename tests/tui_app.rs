@@ -13,6 +13,7 @@ async fn tui_updates_player_snapshot_from_ws_messages() {
     app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
         backend_name: "noop".into(),
         playback_state: "playing".into(),
+        queue_preview: vec!["Blue Bird".into()],
         current_song: Some(melo::core::model::player::NowPlayingSong {
             song_id: 1,
             title: "Blue Bird".into(),
@@ -42,6 +43,7 @@ async fn tui_applies_navigation_flags_and_last_error_from_snapshot() {
     app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
         backend_name: "noop".into(),
         playback_state: "error".into(),
+        queue_preview: vec!["One".into(), "Two".into()],
         current_song: None,
         queue_len: 2,
         queue_index: Some(1),
@@ -87,6 +89,7 @@ fn playback_label_renders_progress_window() {
         melo::tui::ui::playbar::playback_label(&melo::core::model::player::PlayerSnapshot {
             backend_name: "noop".into(),
             playback_state: "playing".into(),
+            queue_preview: vec!["Blue Bird".into()],
             current_song: Some(melo::core::model::player::NowPlayingSong {
                 song_id: 1,
                 title: "Blue Bird".into(),
@@ -117,6 +120,7 @@ fn footer_status_includes_volume_and_repeat_mode() {
     app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
         backend_name: "noop".into(),
         playback_state: "playing".into(),
+        queue_preview: vec!["Blue Bird".into(), "Always Online".into()],
         current_song: None,
         queue_len: 2,
         queue_index: Some(0),
@@ -136,4 +140,34 @@ fn footer_status_includes_volume_and_repeat_mode() {
     assert!(footer.contains("vol=55"));
     assert!(footer.contains("repeat=all"));
     assert!(footer.contains("shuffle=true"));
+}
+
+#[test]
+fn question_mark_toggles_help_popup() {
+    let mut app = melo::tui::app::App::new_for_test();
+    assert!(!app.show_help);
+
+    let action = app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+
+    assert_eq!(action, Some(melo::tui::event::Action::OpenHelp));
+    assert!(app.show_help);
+}
+
+#[test]
+fn footer_hints_can_be_hidden() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.footer_hints_enabled = false;
+
+    let footer = app.footer_status();
+    assert!(!footer.contains("? Help"));
+}
+
+#[test]
+fn queue_panel_renders_loaded_titles() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.queue_titles = vec!["Blue Bird".to_string(), "Always Online".to_string()];
+
+    let content = app.render_queue_lines();
+    assert!(content.iter().any(|line| line.contains("Blue Bird")));
+    assert!(content.iter().any(|line| line.contains("Always Online")));
 }

@@ -18,19 +18,29 @@ pub async fn run() -> MeloResult<()> {
         crate::cli::dispatch::Dispatch::DefaultLaunch => {
             let settings = crate::core::config::settings::Settings::load()?;
             let base_url = crate::daemon::process::ensure_running(&settings).await?;
-            let source_label = if settings.open.scan_current_dir {
+            let (source_label, startup_notice) = if settings.open.scan_current_dir {
                 let cwd = std::env::current_dir()
                     .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
-                crate::cli::client::ApiClient::new(base_url.clone())
+                match crate::cli::client::ApiClient::new(base_url.clone())
                     .open_target(cwd.to_string_lossy().into_owned(), "cwd_dir")
                     .await
-                    .ok()
-                    .map(|opened| opened.source_label)
+                {
+                    Ok(opened) => (Some(opened.source_label), None),
+                    Err(err) => (None, Some(err.to_string())),
+                }
             } else {
-                None
+                (None, None)
             };
 
-            return crate::tui::run::start(base_url, source_label).await;
+            return crate::tui::run::start(
+                base_url,
+                crate::tui::run::LaunchContext {
+                    source_label,
+                    startup_notice,
+                    footer_hints_enabled: settings.tui.show_footer_hints,
+                },
+            )
+            .await;
         }
         crate::cli::dispatch::Dispatch::DirectOpen(target) => {
             let settings = crate::core::config::settings::Settings::load()?;
@@ -43,7 +53,15 @@ pub async fn run() -> MeloResult<()> {
             let opened = crate::cli::client::ApiClient::new(base_url.clone())
                 .open_target(target, mode)
                 .await?;
-            return crate::tui::run::start(base_url, Some(opened.source_label)).await;
+            return crate::tui::run::start(
+                base_url,
+                crate::tui::run::LaunchContext {
+                    source_label: Some(opened.source_label),
+                    startup_notice: None,
+                    footer_hints_enabled: settings.tui.show_footer_hints,
+                },
+            )
+            .await;
         }
         crate::cli::dispatch::Dispatch::Clap => {}
     }
@@ -99,7 +117,15 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
         Some(Command::Tui) => {
             let settings = crate::core::config::settings::Settings::load()?;
             let base_url = crate::daemon::process::ensure_running(&settings).await?;
-            crate::tui::run::start(base_url, None).await?;
+            crate::tui::run::start(
+                base_url,
+                crate::tui::run::LaunchContext {
+                    source_label: None,
+                    startup_notice: None,
+                    footer_hints_enabled: settings.tui.show_footer_hints,
+                },
+            )
+            .await?;
         }
         Some(Command::Daemon) => {
             let settings = crate::core::config::settings::Settings::load()?;
@@ -120,13 +146,14 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
                 .local_addr()
                 .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
             let state = crate::daemon::app::AppState::new()?;
+            let backend_name = state.player.snapshot().await.backend_name;
             crate::daemon::registry::store_registration(
                 &crate::daemon::registry::DaemonRegistration {
                     base_url: format!("http://{listener_addr}"),
                     pid: std::process::id(),
                     started_at: daemon_started_at_text(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
-                    backend: "rodio".to_string(),
+                    backend: backend_name,
                     host: listener_addr.ip().to_string(),
                     port: listener_addr.port(),
                 },

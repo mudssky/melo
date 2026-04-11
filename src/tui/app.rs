@@ -25,6 +25,14 @@ pub struct App {
     pub focus: FocusArea,
     /// 启动来源标签。
     pub source_label: Option<String>,
+    /// 启动阶段要展示的一次性提示。
+    pub startup_notice: Option<String>,
+    /// 是否显示底部快捷键提示。
+    pub footer_hints_enabled: bool,
+    /// 当前是否打开帮助弹层。
+    pub show_help: bool,
+    /// 当前队列标题列表。
+    pub queue_titles: Vec<String>,
 }
 
 impl App {
@@ -41,6 +49,10 @@ impl App {
             active_view: ActiveView::Songs,
             focus: FocusArea::Content,
             source_label: None,
+            startup_notice: None,
+            footer_hints_enabled: true,
+            show_help: false,
+            queue_titles: Vec::new(),
         }
     }
 
@@ -57,8 +69,26 @@ impl App {
             crossterm::event::KeyCode::Char('>') => Some(Action::Next),
             crossterm::event::KeyCode::Char('<') => Some(Action::Prev),
             crossterm::event::KeyCode::Char('/') => Some(Action::OpenSearch),
-            crossterm::event::KeyCode::Char('?') => Some(Action::OpenHelp),
-            crossterm::event::KeyCode::Char('q') => Some(Action::Quit),
+            crossterm::event::KeyCode::Char('?') => {
+                self.show_help = !self.show_help;
+                Some(Action::OpenHelp)
+            }
+            crossterm::event::KeyCode::Esc => {
+                if self.show_help {
+                    self.show_help = false;
+                    None
+                } else {
+                    None
+                }
+            }
+            crossterm::event::KeyCode::Char('q') => {
+                if self.show_help {
+                    self.show_help = false;
+                    None
+                } else {
+                    Some(Action::Quit)
+                }
+            }
             _ => None,
         }
     }
@@ -71,6 +101,7 @@ impl App {
     /// # 返回值
     /// - 无
     pub fn apply_snapshot(&mut self, snapshot: PlayerSnapshot) {
+        self.queue_titles = snapshot.queue_preview.clone();
         self.player = snapshot;
     }
 
@@ -104,8 +135,9 @@ impl App {
         };
 
         let mut status = format!(
-            "{} | queue={} | prev={} | next={} | vol={} | repeat={} | shuffle={}",
+            "{} | backend={} | queue={} | prev={} | next={} | vol={} | repeat={} | shuffle={}",
             self.player.playback_state,
+            self.player.backend_name,
             self.player.queue_len,
             self.player.has_prev,
             self.player.has_next,
@@ -119,7 +151,41 @@ impl App {
             status.push_str(source_label);
         }
 
+        if let Some(startup_notice) = &self.startup_notice {
+            status.push_str(" | notice=");
+            status.push_str(startup_notice);
+        }
+
+        if self.footer_hints_enabled {
+            status.push_str(" | hints=Space Play/Pause ? Help q Quit");
+        }
+
         status
+    }
+
+    /// 生成队列面板要显示的文本行。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `Vec<String>`：队列面板的可显示文本行
+    pub fn render_queue_lines(&self) -> Vec<String> {
+        if self.queue_titles.is_empty() {
+            return vec!["No tracks loaded".to_string()];
+        }
+
+        self.queue_titles
+            .iter()
+            .enumerate()
+            .map(|(index, title)| {
+                if self.player.queue_index == Some(index) {
+                    format!("> {title}")
+                } else {
+                    format!("  {title}")
+                }
+            })
+            .collect()
     }
 
     /// 计算当前屏幕布局。

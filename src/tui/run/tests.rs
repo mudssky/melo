@@ -15,3 +15,11 @@ fn quit_key_still_maps_to_quit_action() {
 
     assert_eq!(action, Some(crate::tui::event::Action::Quit));
 }
+
+#[test]
+fn startup_notice_is_included_in_status_line() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.startup_notice = Some("open_scan_failed".to_string());
+
+    assert!(app.footer_status().contains("open_scan_failed"));
+}
