@@ -10,9 +10,14 @@ const packageJson = JSON.parse(
 ) as {
   bin: Record<string, string>
   scripts: Record<string, string>
+  type?: string
 }
 
 describe('package metadata for the global dev CLI workflow', () => {
+  it('marks the package as ESM so dev-cli tests can use .ts files', () => {
+    expect(packageJson.type).toBe('module')
+  })
+
   it('publishes the global melo bin entry', () => {
     expect(packageJson.bin).toEqual({
       melo: './bin/melo-dev.cjs',
