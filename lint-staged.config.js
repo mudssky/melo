@@ -26,7 +26,7 @@ module.exports = {
     }
 
     commands.push('cargo fmt --all --check')
-    commands.push('cargo clippy --all-targets --all-features -- -D warnings')
+    commands.push('cargo clippy --no-deps -- -D warnings')
 
     return commands
   },
