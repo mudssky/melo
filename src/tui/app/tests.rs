@@ -78,3 +78,23 @@ fn enter_on_playlist_list_requests_play_from_start() {
         Some(crate::tui::event::Action::PlaySelectedPlaylistFromStart)
     );
 }
+
+#[test]
+fn selecting_playlist_index_updates_highlight_without_playing() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.apply_tui_snapshot(crate::core::model::tui::TuiSnapshot {
+        player: crate::core::model::player::PlayerSnapshot::default(),
+        active_task: None,
+        playlist_browser: browser_snapshot(),
+    });
+
+    let effect = app.select_playlist_index(1);
+
+    assert_eq!(
+        effect,
+        Some(crate::tui::event::Intent::Action(
+            crate::tui::event::ActionId::LoadPreview
+        ))
+    );
+    assert_eq!(app.selected_playlist_name(), Some("Aimer"));
+}

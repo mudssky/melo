@@ -204,20 +204,12 @@ impl App {
                     .saturating_sub(1),
             )
         };
-
-        let next_name = self.playlist_browser.visible_playlists[next_index]
-            .name
-            .clone();
-        if self.selected_playlist_name.as_deref() == Some(next_name.as_str()) {
-            return None;
+        match self.select_playlist_index(next_index) {
+            Some(crate::tui::event::Intent::Action(crate::tui::event::ActionId::LoadPreview)) => {
+                Some(Action::LoadSelectedPlaylistPreview)
+            }
+            _ => None,
         }
-
-        self.selected_playlist_name = Some(next_name);
-        self.preview_error = None;
-        self.preview_loading = false;
-        self.preview_titles.clear();
-        self.selected_preview_index = 0;
-        Some(Action::LoadSelectedPlaylistPreview)
     }
 
     /// 用远端快照刷新本地状态。
@@ -280,6 +272,36 @@ impl App {
         self.selected_playlist_name.as_deref()
     }
 
+    /// 按索引切换当前歌单选择。
+    ///
+    /// # 参数
+    /// - `index`：目标歌单索引
+    ///
+    /// # 返回值
+    /// - `Option<crate::tui::event::Intent>`：选择变化时返回后续要执行的意图
+    pub fn select_playlist_index(&mut self, index: usize) -> Option<crate::tui::event::Intent> {
+        let next_name = self
+            .playlist_browser
+            .visible_playlists
+            .get(index)
+            .map(|playlist| playlist.name.clone())?;
+
+        self.focus = FocusArea::PlaylistList;
+        if self.selected_playlist_name.as_deref() == Some(next_name.as_str()) {
+            return None;
+        }
+
+        self.selected_playlist_name = Some(next_name);
+        self.preview_name = None;
+        self.preview_error = None;
+        self.preview_loading = false;
+        self.preview_titles.clear();
+        self.selected_preview_index = 0;
+        Some(crate::tui::event::Intent::Action(
+            crate::tui::event::ActionId::LoadPreview,
+        ))
+    }
+
     /// 返回当前选中的预览索引。
     ///
     /// # 参数
@@ -289,6 +311,20 @@ impl App {
     /// - `usize`：当前选中的预览索引
     pub fn selected_preview_index(&self) -> usize {
         self.selected_preview_index
+    }
+
+    /// 按索引切换当前预览选择。
+    ///
+    /// # 参数
+    /// - `index`：目标预览索引
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn select_preview_index(&mut self, index: usize) {
+        if index < self.preview_titles.len() {
+            self.focus = FocusArea::PlaylistPreview;
+            self.selected_preview_index = index;
+        }
     }
 
     /// 写入当前歌单预览。

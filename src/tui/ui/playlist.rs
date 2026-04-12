@@ -78,3 +78,43 @@ pub fn render_preview_lines(app: &crate::tui::app::App) -> Vec<String> {
         })
         .collect()
 }
+
+/// 根据点击行号计算歌单列表索引。
+///
+/// # 参数
+/// - `area`：歌单面板区域
+/// - `row`：鼠标所在终端行
+/// - `item_count`：可见歌单数量
+///
+/// # 返回值
+/// - `Option<usize>`：命中的歌单索引
+pub fn playlist_index_at(
+    area: ratatui::layout::Rect,
+    row: u16,
+    item_count: usize,
+) -> Option<usize> {
+    let start = area.y.saturating_add(2);
+    if row < start {
+        return None;
+    }
+    let index = (row - start) as usize;
+    (index < item_count).then_some(index)
+}
+
+/// 根据点击行号计算预览列表索引。
+///
+/// # 参数
+/// - `area`：预览面板区域
+/// - `row`：鼠标所在终端行
+/// - `item_count`：当前预览项目数量
+///
+/// # 返回值
+/// - `Option<usize>`：命中的预览索引
+pub fn preview_index_at(area: ratatui::layout::Rect, row: u16, item_count: usize) -> Option<usize> {
+    let start = area.y.saturating_add(1);
+    if row < start {
+        return None;
+    }
+    let index = (row - start) as usize;
+    (index < item_count).then_some(index)
+}
