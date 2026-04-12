@@ -407,6 +407,136 @@ async fn api_tui_websocket_initial_snapshot_includes_playlist_browser_defaults()
 }
 
 #[tokio::test]
+async fn tui_home_endpoint_returns_playlist_browser_snapshot() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    state.set_current_playlist_context("C:/Music/Aimer", "ephemeral");
+    let app = melo::daemon::server::router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/tui/home")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        payload["data"]["playlist_browser"]["default_view"],
+        "playlist"
+    );
+}
+
+#[tokio::test]
+async fn playlist_preview_endpoint_accepts_path_named_ephemeral_playlist() {
+    let harness = melo::test_support::TestHarness::new().await;
+    let playlist_service = harness.playlist_service();
+    let ephemeral_name = "C:/Temp/Aimer".to_string();
+    harness
+        .seed_song("Blue Bird", "Ikimono-gakari", "Blue Bird", 2008)
+        .await;
+    playlist_service
+        .upsert_ephemeral(
+            &ephemeral_name,
+            "path_dir",
+            &ephemeral_name,
+            true,
+            None,
+            &[1],
+        )
+        .await
+        .unwrap();
+    let app = melo::daemon::app::test_router_with_settings(harness.settings.clone()).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/playlists/preview?name={ephemeral_name}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn playlist_play_endpoint_starts_from_selected_index_and_updates_current_source() {
+    let harness = melo::test_support::TestHarness::new().await;
+    let playlist_service = harness.playlist_service();
+    harness.seed_song("One", "Aimer", "Singles", 2015).await;
+    harness.seed_song("Two", "Aimer", "Singles", 2015).await;
+    let one_path = harness.write_song_file("audio/one.flac").await;
+    let two_path = harness.write_song_file("audio/two.flac").await;
+    let conn = rusqlite::Connection::open(harness.settings.database.path.as_std_path()).unwrap();
+    conn.execute(
+        "UPDATE songs SET path = ?1 WHERE id = 1",
+        [one_path.to_string_lossy().to_string()],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE songs SET path = ?1 WHERE id = 2",
+        [two_path.to_string_lossy().to_string()],
+    )
+    .unwrap();
+    playlist_service
+        .create_static("Favorites", None)
+        .await
+        .unwrap();
+    playlist_service
+        .add_songs("Favorites", &[1, 2])
+        .await
+        .unwrap();
+    let app = melo::daemon::app::test_router_with_settings(harness.settings.clone()).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/playlists/play")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"name":"Favorites","start_index":1}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["data"]["player"]["queue_index"], 1);
+    assert_eq!(
+        payload["data"]["playlist_browser"]["current_playing_playlist"]["name"],
+        "Favorites"
+    );
+}
+
+#[tokio::test]
+async fn queue_clear_endpoint_clears_current_playlist_context() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    state.set_current_playlist_context("Favorites", "static");
+    let app = melo::daemon::server::router(state.clone());
+
+    let _ = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/queue/clear")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert!(state.current_playlist_context().is_none());
+}
+
+#[tokio::test]
 async fn player_volume_endpoint_updates_snapshot_contract() {
     let app = melo::daemon::app::test_router().await;
     let response = app
@@ -486,6 +616,10 @@ async fn openapi_json_endpoint_is_available() {
     let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(payload["openapi"].is_string());
     assert!(payload["paths"]["/api/player/status"].is_object());
+    assert!(payload["paths"]["/api/tui/home"].is_object());
+    assert!(payload["paths"]["/api/playlists/preview"].is_object());
+    assert!(payload["paths"]["/api/playlists/play"].is_object());
+    assert!(payload["paths"]["/api/ws/tui"].is_object());
 }
 
 #[tokio::test]

@@ -70,6 +70,7 @@ pub async fn add(
     for item in request.items {
         snapshot = state.player.append(item).await.map_err(ApiError::from)?;
     }
+    state.clear_current_playlist_context();
 
     Ok(Json(ApiResponse::ok(snapshot)))
 }
@@ -96,13 +97,13 @@ pub async fn insert(
     State(state): State<AppState>,
     Json(request): Json<QueueInsertRequest>,
 ) -> Result<Json<ApiResponse<PlayerSnapshot>>, ApiError> {
-    state
+    let snapshot = state
         .player
         .insert(request.index, request.item)
         .await
-        .map(ApiResponse::ok)
-        .map(Json)
-        .map_err(ApiError::from)
+        .map_err(ApiError::from)?;
+    state.clear_current_playlist_context();
+    Ok(Json(ApiResponse::ok(snapshot)))
 }
 
 /// 清空整个播放队列。
@@ -116,13 +117,9 @@ pub async fn insert(
 pub async fn clear(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<PlayerSnapshot>>, ApiError> {
-    state
-        .player
-        .clear()
-        .await
-        .map(ApiResponse::ok)
-        .map(Json)
-        .map_err(ApiError::from)
+    let snapshot = state.player.clear().await.map_err(ApiError::from)?;
+    state.clear_current_playlist_context();
+    Ok(Json(ApiResponse::ok(snapshot)))
 }
 
 /// 选择指定队列索引并播放。
@@ -179,13 +176,13 @@ pub async fn remove(
     State(state): State<AppState>,
     Json(request): Json<QueueRemoveRequest>,
 ) -> Result<Json<ApiResponse<PlayerSnapshot>>, ApiError> {
-    state
+    let snapshot = state
         .player
         .remove(request.index)
         .await
-        .map(ApiResponse::ok)
-        .map(Json)
-        .map_err(ApiError::from)
+        .map_err(ApiError::from)?;
+    state.clear_current_playlist_context();
+    Ok(Json(ApiResponse::ok(snapshot)))
 }
 
 /// 移动指定队列项。
@@ -210,11 +207,11 @@ pub async fn move_item(
     State(state): State<AppState>,
     Json(request): Json<QueueMoveRequest>,
 ) -> Result<Json<ApiResponse<PlayerSnapshot>>, ApiError> {
-    state
+    let snapshot = state
         .player
         .move_item(request.from, request.to)
         .await
-        .map(ApiResponse::ok)
-        .map(Json)
-        .map_err(ApiError::from)
+        .map_err(ApiError::from)?;
+    state.clear_current_playlist_context();
+    Ok(Json(ApiResponse::ok(snapshot)))
 }

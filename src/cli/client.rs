@@ -190,6 +190,57 @@ impl ApiClient {
         .await
     }
 
+    /// 获取 TUI 首页聚合快照。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::core::model::tui::TuiSnapshot>`：TUI 首页快照
+    pub async fn tui_home(&self) -> MeloResult<crate::core::model::tui::TuiSnapshot> {
+        let url = format!("{}/api/tui/home", self.base_url);
+        self.send_and_decode(self.client.get(url)).await
+    }
+
+    /// 预览指定歌单。
+    ///
+    /// # 参数
+    /// - `name`：歌单名
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::api::playlist::PlaylistPreviewResponse>`：歌单预览结果
+    pub async fn playlist_preview(
+        &self,
+        name: &str,
+    ) -> MeloResult<crate::api::playlist::PlaylistPreviewResponse> {
+        let mut url = reqwest::Url::parse(&format!("{}/api/playlists/preview", self.base_url))
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+        url.query_pairs_mut().append_pair("name", name);
+        self.send_and_decode(self.client.get(url)).await
+    }
+
+    /// 播放指定歌单，并从给定索引起播。
+    ///
+    /// # 参数
+    /// - `name`：歌单名
+    /// - `start_index`：起播索引
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::core::model::tui::TuiSnapshot>`：新的 TUI 聚合快照
+    pub async fn playlist_play(
+        &self,
+        name: &str,
+        start_index: usize,
+    ) -> MeloResult<crate::core::model::tui::TuiSnapshot> {
+        let url = format!("{}/api/playlists/play", self.base_url);
+        self.send_and_decode(
+            self.client
+                .post(url)
+                .json(&serde_json::json!({ "name": name, "start_index": start_index })),
+        )
+        .await
+    }
+
     /// 发送一个无请求体的 POST 命令。
     ///
     /// # 参数

@@ -99,6 +99,15 @@ pub fn router(state: AppState) -> Router {
             axum::routing::post(crate::api::queue::move_item),
         )
         .route("/api/open", axum::routing::post(crate::api::open::open))
+        .route("/api/tui/home", axum::routing::get(crate::api::tui::home))
+        .route(
+            "/api/playlists/preview",
+            axum::routing::get(crate::api::playlist::preview),
+        )
+        .route(
+            "/api/playlists/play",
+            axum::routing::post(crate::api::playlist::play),
+        )
         .route(
             "/api/ws/player",
             axum::routing::get(crate::api::ws::player_updates),
