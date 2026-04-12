@@ -38,35 +38,50 @@ pub async fn run_prepared(prepared: crate::cli::global_flags::PreparedArgs) -> M
                 crate::core::logging::LogComponent::Cli,
                 &prepared.logging,
             );
-            let _mirror = if prepared.logging.verbose {
-                Some(crate::core::logging::attach_daemon_log_mirror(
-                    crate::core::logging::daemon_log_path(&settings),
-                    resolved_cli.prefix_enabled,
-                    settings.logging.daemon_prefix.clone(),
-                ))
-            } else {
-                None
-            };
-            tracing::info!(target: "melo::cli::startup", "resolving_base_url");
-            let ensured =
-                crate::daemon::manager::ensure_running_with_logging(&settings, &prepared.logging)
-                    .await?;
-            report_daemon_override_notice(&settings, &prepared.logging, ensured.already_running);
-            let base_url = ensured.base_url;
             let renderer = crate::core::runtime_templates::RuntimeTemplateRenderer::default();
-            let (source_label, startup_notice) = if settings.open.scan_current_dir {
-                let cwd = std::env::current_dir()
-                    .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
-                if let Some(line) =
-                    render_scan_cli_lines(&renderer, &settings, &cwd.to_string_lossy()).first()
-                {
-                    println!("{line}");
-                }
-                match crate::cli::client::ApiClient::new(base_url.clone())
-                    .open_target(cwd.to_string_lossy().into_owned(), "cwd_dir")
-                    .await
-                {
-                    Ok(opened) => {
+            let launch_cwd = std::env::current_dir()
+                .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
+            let launch_cwd_text = launch_cwd_text(&launch_cwd);
+            let (base_url, source_label, startup_notice) = {
+                let _mirror = if prepared.logging.verbose {
+                    Some(crate::core::logging::attach_daemon_log_mirror(
+                        crate::core::logging::daemon_log_path(&settings),
+                        resolved_cli.prefix_enabled,
+                        settings.logging.daemon_prefix.clone(),
+                    ))
+                } else {
+                    None
+                };
+                tracing::info!(target: "melo::cli::startup", "resolving_base_url");
+                let ensured = crate::daemon::manager::ensure_running_with_logging(
+                    &settings,
+                    &prepared.logging,
+                )
+                .await?;
+                report_daemon_override_notice(
+                    &settings,
+                    &prepared.logging,
+                    ensured.already_running,
+                );
+                let base_url = ensured.base_url;
+                let home = crate::cli::client::ApiClient::new(base_url.clone())
+                    .tui_home()
+                    .await?;
+                let decision =
+                    crate::cli::launch::choose_default_launch_decision(&launch_cwd, &home);
+                let (source_label, startup_notice) = match decision {
+                    crate::cli::launch::DefaultLaunchDecision::PreserveCurrentSession {
+                        ..
+                    } => (None, Some("Continuing current playback".to_string())),
+                    crate::cli::launch::DefaultLaunchDecision::OpenLaunchCwd { launch_cwd } => {
+                        if let Some(line) =
+                            render_scan_cli_lines(&renderer, &settings, &launch_cwd).first()
+                        {
+                            println!("{line}");
+                        }
+                        let opened = crate::cli::client::ApiClient::new(base_url.clone())
+                            .open_target(launch_cwd.clone(), "cwd_dir")
+                            .await?;
                         if let Some(line) =
                             render_scan_cli_lines(&renderer, &settings, &opened.source_label).get(1)
                         {
@@ -74,16 +89,14 @@ pub async fn run_prepared(prepared: crate::cli::global_flags::PreparedArgs) -> M
                         }
                         (Some(opened.source_label), None)
                     }
-                    Err(err) => (None, Some(err.to_string())),
-                }
-            } else {
-                (None, None)
+                };
+                (base_url, source_label, startup_notice)
             };
-            tracing::info!(target: "melo::cli::startup", "opening_cwd_directly");
 
             return crate::tui::run::start(
                 base_url,
                 crate::tui::run::LaunchContext {
+                    launch_cwd: Some(launch_cwd_text),
                     source_label,
                     startup_notice,
                     footer_hints_enabled: settings.tui.show_footer_hints,
@@ -136,6 +149,7 @@ pub async fn run_prepared(prepared: crate::cli::global_flags::PreparedArgs) -> M
             return crate::tui::run::start(
                 base_url,
                 crate::tui::run::LaunchContext {
+                    launch_cwd: None,
                     source_label: Some(opened.source_label),
                     startup_notice: None,
                     footer_hints_enabled: settings.tui.show_footer_hints,
@@ -223,6 +237,7 @@ async fn run_clap(
             crate::tui::run::start(
                 base_url,
                 crate::tui::run::LaunchContext {
+                    launch_cwd: None,
                     source_label: None,
                     startup_notice: None,
                     footer_hints_enabled: settings.tui.show_footer_hints,
@@ -407,6 +422,17 @@ fn render_scan_cli_lines(
             serde_json::json!({ "source_label": source_label }),
         ),
     ]
+}
+
+/// 将启动目录格式化为稳定的文本表示。
+///
+/// # 参数
+/// - `path`：运行时捕获到的当前目录
+///
+/// # 返回值
+/// - `String`：可传给 TUI 与测试断言的目录文本
+pub(crate) fn launch_cwd_text(path: &std::path::Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 /// 构造一个基于发现逻辑的 daemon 客户端。

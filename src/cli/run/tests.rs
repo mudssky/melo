@@ -16,3 +16,9 @@ fn render_scan_cli_lines_uses_runtime_template_overrides() {
         vec!["Start Aimer".to_string(), "Into TUI".to_string()]
     );
 }
+
+#[test]
+fn launch_cwd_text_preserves_runtime_directory() {
+    let text = super::launch_cwd_text(std::path::Path::new("D:/Music/Aimer"));
+    assert_eq!(text, "D:/Music/Aimer");
+}

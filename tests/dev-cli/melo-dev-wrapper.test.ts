@@ -20,6 +20,7 @@ const wrapper = require('../../bin/melo-dev.cjs') as {
   run: (
     args: string[],
     options: {
+      cwd?: string
       env: Record<string, string>
       homeDir: string
       platform: NodeJS.Platform
@@ -59,10 +60,11 @@ describe('melo dev wrapper', () => {
     expect(binary).toBe(path.join('D:/tools/cargo-home', 'bin', 'melo.exe'))
   })
 
-  it('spawns the installed binary from the repo root with forwarded args', () => {
+  it('spawns the installed binary from the caller cwd with forwarded args', () => {
     const spawnSyncImpl = vi.fn(() => ({ status: 0 }))
 
     const exitCode = wrapper.run(['status'], {
+      cwd: 'D:/Music/Aimer',
       env: {},
       homeDir: 'C:/Users/dev',
       platform: 'win32',
@@ -75,7 +77,7 @@ describe('melo dev wrapper', () => {
       path.join('C:/Users/dev', '.cargo', 'bin', 'melo.exe'),
       ['status'],
       expect.objectContaining({
-        cwd: repoRoot,
+        cwd: 'D:/Music/Aimer',
         stdio: 'inherit',
         env: expect.objectContaining({
           MELO_CONFIG: path.join(repoRoot, 'config.dev.toml'),

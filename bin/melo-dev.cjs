@@ -69,6 +69,7 @@ function buildChildEnv(env = process.env, repoRoot = resolveRepoRoot()) {
  *
  * @param {string[]} [argv=process.argv.slice(2)] 透传给 `melo` 的参数
  * @param {{
+ *   cwd?: string,
  *   env?: NodeJS.ProcessEnv,
  *   homeDir?: string,
  *   platform?: NodeJS.Platform,
@@ -87,8 +88,9 @@ function run(argv = process.argv.slice(2), options = {}) {
     options.platform ?? process.platform,
     options.homeDir ?? os.homedir(),
   )
+  const childCwd = options.cwd ?? process.cwd()
   const result = (options.spawnSyncImpl ?? spawnSync)(binaryPath, argv, {
-    cwd: repoRoot,
+    cwd: childCwd,
     env,
     stdio: 'inherit',
   })

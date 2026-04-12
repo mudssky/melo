@@ -12,6 +12,8 @@ use crate::tui::event::Action;
 
 /// TUI 启动时需要带入的上下文。
 pub struct LaunchContext {
+    /// 调用方 shell 的当前目录。
+    pub launch_cwd: Option<String>,
     /// 启动来源标签。
     pub source_label: Option<String>,
     /// 一次性启动提示。
