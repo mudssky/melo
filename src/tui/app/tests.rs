@@ -98,3 +98,14 @@ fn selecting_playlist_index_updates_highlight_without_playing() {
     );
     assert_eq!(app.selected_playlist_name(), Some("Aimer"));
 }
+
+#[test]
+fn esc_returns_focus_to_playlist_list() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.focus = crate::tui::app::FocusArea::PlaylistPreview;
+
+    let intent = app.handle_action(crate::tui::event::ActionId::FocusPrev);
+
+    assert_eq!(intent, None);
+    assert_eq!(app.focus, crate::tui::app::FocusArea::PlaylistList);
+}

@@ -3,20 +3,53 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 /// 返回帮助弹窗的默认文案。
 ///
 /// # 参数
+/// - `keymap`：当前生效的 keymap 解析器
+///
+/// # 返回值
+/// - `Vec<String>`：帮助提示列表
+pub fn help_lines_for(keymap: &crate::tui::keymap::Keymap) -> Vec<String> {
+    vec![
+        format!(
+            "{} 切换焦点",
+            keymap.describe(crate::tui::event::ActionId::FocusNext)
+        ),
+        format!(
+            "{} 播放当前选择",
+            keymap.describe(crate::tui::event::ActionId::Activate)
+        ),
+        format!(
+            "{} 切换循环模式",
+            keymap.describe(crate::tui::event::ActionId::CycleRepeatMode)
+        ),
+        format!(
+            "{} 切换随机播放",
+            keymap.describe(crate::tui::event::ActionId::ToggleShuffle)
+        ),
+        format!(
+            "{} 播放/暂停",
+            keymap.describe(crate::tui::event::ActionId::TogglePlayback)
+        ),
+        format!(
+            "{} 打开帮助",
+            keymap.describe(crate::tui::event::ActionId::OpenHelp)
+        ),
+        format!(
+            "{} 退出",
+            keymap.describe(crate::tui::event::ActionId::Quit)
+        ),
+    ]
+}
+
+/// 返回默认 keymap 下的帮助文案。
+///
+/// # 参数
 /// - 无
 ///
 /// # 返回值
-/// - `Vec<&'static str>`：帮助提示列表
-pub fn help_lines() -> Vec<&'static str> {
-    vec![
-        "Tab 切换焦点",
-        "Enter 播放当前选择",
-        "r 切换循环模式",
-        "s 切换随机播放",
-        "Space 播放/暂停",
-        "? 打开帮助",
-        "q 退出",
-    ]
+/// - `Vec<String>`：帮助提示列表
+pub fn help_lines() -> Vec<String> {
+    let keymap = crate::tui::keymap::Keymap::default();
+    help_lines_for(&keymap)
 }
 
 /// 计算帮助弹层的居中显示区域。

@@ -1,3 +1,30 @@
+/// 左侧歌单列表的单行展示模型。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistRowModel {
+    pub text: String,
+    pub is_selected: bool,
+    pub is_current_source: bool,
+}
+
+/// 构造歌单列表的行模型。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+///
+/// # 返回值
+/// - `Vec<PlaylistRowModel>`：带语义标记的歌单行
+pub fn playlist_row_models(app: &crate::tui::app::App) -> Vec<PlaylistRowModel> {
+    app.playlist_browser
+        .visible_playlists
+        .iter()
+        .map(|playlist| PlaylistRowModel {
+            text: format!("{} ({})", playlist.name, playlist.count),
+            is_selected: app.selected_playlist_name() == Some(playlist.name.as_str()),
+            is_current_source: playlist.is_current_playing_source,
+        })
+        .collect()
+}
+
 /// 渲染左侧歌单列表区域的文本行。
 ///
 /// # 参数
@@ -24,6 +51,50 @@ pub fn render_playlist_lines(app: &crate::tui::app::App) -> Vec<String> {
     }
 
     lines
+}
+
+/// 用状态化列表组件渲染歌单区域。
+///
+/// # 参数
+/// - `frame`：当前帧
+/// - `area`：歌单列表区域
+/// - `app`：当前 TUI 状态
+/// - `theme`：当前主题
+///
+/// # 返回值
+/// - 无
+pub fn render_playlist_widget(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    app: &mut crate::tui::app::App,
+    theme: crate::tui::theme::Theme,
+) {
+    let items = playlist_row_models(app)
+        .into_iter()
+        .map(|row| {
+            let style = match (row.is_selected, row.is_current_source) {
+                (true, true) => theme.selected_current_source_row,
+                (true, false) => theme.selected_row,
+                (false, true) => theme.current_source_row,
+                (false, false) => ratatui::style::Style::default(),
+            };
+            ratatui::widgets::ListItem::new(row.text).style(style)
+        })
+        .collect::<Vec<_>>();
+
+    let border_style = if app.focus == crate::tui::app::FocusArea::PlaylistList {
+        theme.focused_border
+    } else {
+        theme.pane_border
+    };
+
+    let list = ratatui::widgets::List::new(items).block(
+        ratatui::widgets::Block::bordered()
+            .title("播放列表")
+            .border_style(border_style),
+    );
+
+    frame.render_stateful_widget(list, area, &mut app.playlist_state);
 }
 
 /// 渲染播放状态摘要区域的文本行。

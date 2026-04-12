@@ -1,4 +1,5 @@
 use ratatui::layout::Rect;
+use ratatui::widgets::ListState;
 
 use crate::core::model::player::PlayerSnapshot;
 use crate::tui::event::Action;
@@ -27,6 +28,8 @@ pub struct App {
     pub active_view: ActiveView,
     /// 当前焦点区域。
     pub focus: FocusArea,
+    /// 调用方 shell 的当前目录。
+    pub launch_cwd: Option<String>,
     /// 启动来源标签。
     pub source_label: Option<String>,
     /// 启动阶段要展示的一次性提示。
@@ -37,6 +40,10 @@ pub struct App {
     pub show_help: bool,
     /// 当前歌单浏览快照。
     pub playlist_browser: crate::core::model::tui::PlaylistBrowserSnapshot,
+    /// 左侧歌单列表的状态。
+    pub playlist_state: ListState,
+    /// 右侧预览列表的状态。
+    pub preview_state: ListState,
     /// 当前选中的歌单名。
     pub selected_playlist_name: Option<String>,
     /// 当前预览对应的歌单名。
@@ -67,11 +74,14 @@ impl App {
             active_task: None,
             active_view: ActiveView::Playlist,
             focus: FocusArea::PlaylistList,
+            launch_cwd: None,
             source_label: None,
             startup_notice: None,
             footer_hints_enabled: true,
             show_help: false,
             playlist_browser: crate::core::model::tui::PlaylistBrowserSnapshot::default(),
+            playlist_state: ListState::default(),
+            preview_state: ListState::default(),
             selected_playlist_name: None,
             preview_name: None,
             preview_titles: Vec::new(),
@@ -130,6 +140,38 @@ impl App {
                     Some(Action::Quit)
                 }
             }
+            _ => None,
+        }
+    }
+
+    /// 根据稳定动作 ID 处理本地状态变更。
+    ///
+    /// # 参数
+    /// - `action`：要处理的动作 ID
+    ///
+    /// # 返回值
+    /// - `Option<crate::tui::event::Intent>`：如需进一步执行副作用则返回意图
+    pub fn handle_action(
+        &mut self,
+        action: crate::tui::event::ActionId,
+    ) -> Option<crate::tui::event::Intent> {
+        match action {
+            crate::tui::event::ActionId::FocusNext => {
+                self.focus = FocusArea::PlaylistPreview;
+                None
+            }
+            crate::tui::event::ActionId::FocusPrev => {
+                self.focus = FocusArea::PlaylistList;
+                None
+            }
+            crate::tui::event::ActionId::Activate => match self.focus {
+                FocusArea::PlaylistList => Some(crate::tui::event::Intent::Action(
+                    crate::tui::event::ActionId::PlaySelection,
+                )),
+                FocusArea::PlaylistPreview => Some(crate::tui::event::Intent::Action(
+                    crate::tui::event::ActionId::PlayPreviewSelection,
+                )),
+            },
             _ => None,
         }
     }
@@ -259,6 +301,13 @@ impl App {
                         .map(|playlist| playlist.name.clone())
                 });
         }
+
+        self.playlist_state.select(
+            self.playlist_browser
+                .visible_playlists
+                .iter()
+                .position(|playlist| Some(playlist.name.as_str()) == self.selected_playlist_name()),
+        );
     }
 
     /// 返回当前选中的歌单名。
@@ -292,11 +341,13 @@ impl App {
         }
 
         self.selected_playlist_name = Some(next_name);
+        self.playlist_state.select(Some(index));
         self.preview_name = None;
         self.preview_error = None;
         self.preview_loading = false;
         self.preview_titles.clear();
         self.selected_preview_index = 0;
+        self.preview_state.select(None);
         Some(crate::tui::event::Intent::Action(
             crate::tui::event::ActionId::LoadPreview,
         ))
@@ -324,6 +375,7 @@ impl App {
         if index < self.preview_titles.len() {
             self.focus = FocusArea::PlaylistPreview;
             self.selected_preview_index = index;
+            self.preview_state.select(Some(index));
         }
     }
 
@@ -349,6 +401,8 @@ impl App {
         if self.selected_preview_index >= self.preview_titles.len() {
             self.selected_preview_index = self.preview_titles.len().saturating_sub(1);
         }
+        self.preview_state
+            .select((!self.preview_titles.is_empty()).then_some(self.selected_preview_index));
     }
 
     /// 标记歌单预览正在加载。
@@ -361,6 +415,7 @@ impl App {
     pub fn set_playlist_preview_loading(&mut self) {
         self.preview_loading = true;
         self.preview_error = None;
+        self.preview_state.select(None);
     }
 
     /// 写入歌单预览错误。
@@ -375,6 +430,18 @@ impl App {
         self.preview_error = Some(message.into());
         self.preview_titles.clear();
         self.selected_preview_index = 0;
+        self.preview_state.select(None);
+    }
+
+    /// 设置当前启动目录上下文。
+    ///
+    /// # 参数
+    /// - `launch_cwd`：启动时捕获的当前目录
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn set_launch_cwd(&mut self, launch_cwd: impl Into<String>) {
+        self.launch_cwd = Some(launch_cwd.into());
     }
 
     /// 设置当前启动来源标签。

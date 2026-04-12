@@ -250,3 +250,49 @@ fn active_task_bar_truncates_long_text_to_available_width() {
 
     assert!(unicode_width::UnicodeWidthStr::width(text.as_str()) <= 40);
 }
+
+fn browser_snapshot() -> melo::core::model::tui::PlaylistBrowserSnapshot {
+    melo::core::model::tui::PlaylistBrowserSnapshot {
+        default_view: melo::core::model::tui::TuiViewKind::Playlist,
+        default_selected_playlist: Some("Favorites".to_string()),
+        current_playing_playlist: Some(melo::core::model::tui::PlaylistListItem {
+            name: "Favorites".to_string(),
+            kind: "static".to_string(),
+            count: 2,
+            is_current_playing_source: true,
+            is_ephemeral: false,
+        }),
+        visible_playlists: vec![
+            melo::core::model::tui::PlaylistListItem {
+                name: "Favorites".to_string(),
+                kind: "static".to_string(),
+                count: 2,
+                is_current_playing_source: true,
+                is_ephemeral: false,
+            },
+            melo::core::model::tui::PlaylistListItem {
+                name: "Aimer".to_string(),
+                kind: "smart".to_string(),
+                count: 4,
+                is_current_playing_source: false,
+                is_ephemeral: false,
+            },
+        ],
+    }
+}
+
+#[test]
+fn render_playlist_rows_marks_selected_and_current_source_separately() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.apply_tui_snapshot(melo::core::model::tui::TuiSnapshot {
+        player: melo::core::model::player::PlayerSnapshot::default(),
+        active_task: None,
+        playlist_browser: browser_snapshot(),
+    });
+    app.select_playlist_index(1);
+
+    let rows = melo::tui::ui::playlist::playlist_row_models(&app);
+    assert!(rows[0].is_current_source);
+    assert!(!rows[0].is_selected);
+    assert!(rows[1].is_selected);
+}
