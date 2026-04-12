@@ -7,4 +7,9 @@ pub enum Action {
     Quit,
     OpenSearch,
     OpenHelp,
+    LoadSelectedPlaylistPreview,
+    PlaySelectedPlaylistFromStart,
+    PlaySelectedPreviewSong,
+    CycleRepeatMode,
+    ToggleShuffle,
 }

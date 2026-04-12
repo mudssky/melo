@@ -143,6 +143,24 @@ fn footer_status_includes_volume_and_repeat_mode() {
 }
 
 #[test]
+fn footer_status_still_includes_repeat_and_shuffle_after_playlist_snapshot_applies() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.apply_tui_snapshot(melo::core::model::tui::TuiSnapshot {
+        player: melo::core::model::player::PlayerSnapshot {
+            repeat_mode: "all".into(),
+            shuffle_enabled: true,
+            ..melo::core::model::player::PlayerSnapshot::default()
+        },
+        active_task: None,
+        playlist_browser: melo::core::model::tui::PlaylistBrowserSnapshot::default(),
+    });
+
+    let footer = app.footer_status();
+    assert!(footer.contains("repeat=all"));
+    assert!(footer.contains("shuffle=true"));
+}
+
+#[test]
 fn question_mark_toggles_help_popup() {
     let mut app = melo::tui::app::App::new_for_test();
     assert!(!app.show_help);

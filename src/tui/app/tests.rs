@@ -1,0 +1,80 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+fn browser_snapshot() -> crate::core::model::tui::PlaylistBrowserSnapshot {
+    crate::core::model::tui::PlaylistBrowserSnapshot {
+        default_view: crate::core::model::tui::TuiViewKind::Playlist,
+        default_selected_playlist: Some("Favorites".to_string()),
+        current_playing_playlist: Some(crate::core::model::tui::PlaylistListItem {
+            name: "Favorites".to_string(),
+            kind: "static".to_string(),
+            count: 2,
+            is_current_playing_source: true,
+            is_ephemeral: false,
+        }),
+        visible_playlists: vec![
+            crate::core::model::tui::PlaylistListItem {
+                name: "Favorites".to_string(),
+                kind: "static".to_string(),
+                count: 2,
+                is_current_playing_source: true,
+                is_ephemeral: false,
+            },
+            crate::core::model::tui::PlaylistListItem {
+                name: "Aimer".to_string(),
+                kind: "smart".to_string(),
+                count: 4,
+                is_current_playing_source: false,
+                is_ephemeral: false,
+            },
+        ],
+    }
+}
+
+#[test]
+fn app_uses_default_selected_playlist_only_for_initial_selection() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.apply_tui_snapshot(crate::core::model::tui::TuiSnapshot {
+        player: crate::core::model::player::PlayerSnapshot::default(),
+        active_task: None,
+        playlist_browser: browser_snapshot(),
+    });
+    assert_eq!(app.selected_playlist_name(), Some("Favorites"));
+
+    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(app.selected_playlist_name(), Some("Aimer"));
+
+    app.apply_tui_snapshot(crate::core::model::tui::TuiSnapshot {
+        player: crate::core::model::player::PlayerSnapshot::default(),
+        active_task: None,
+        playlist_browser: browser_snapshot(),
+    });
+    assert_eq!(app.selected_playlist_name(), Some("Aimer"));
+}
+
+#[test]
+fn tab_switches_focus_between_playlist_list_and_preview() {
+    let mut app = crate::tui::app::App::new_for_test();
+    assert_eq!(app.focus, crate::tui::app::FocusArea::PlaylistList);
+
+    let action = app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+    assert_eq!(action, None);
+    assert_eq!(app.focus, crate::tui::app::FocusArea::PlaylistPreview);
+}
+
+#[test]
+fn enter_on_playlist_list_requests_play_from_start() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.apply_tui_snapshot(crate::core::model::tui::TuiSnapshot {
+        player: crate::core::model::player::PlayerSnapshot::default(),
+        active_task: None,
+        playlist_browser: browser_snapshot(),
+    });
+
+    let action = app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        action,
+        Some(crate::tui::event::Action::PlaySelectedPlaylistFromStart)
+    );
+}

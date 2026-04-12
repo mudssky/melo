@@ -80,6 +80,10 @@ codegen-units = 256
 # dev 引入第三方库开启优化，因为库一般编译一次多次使用节省时间
 opt-level = 1
 
+[profile.test]
+# Windows 下测试二进制链接体积较大，降低 codegen-units 避免 rust-lld 峰值内存失控。
+codegen-units = 64
+
 [patch.crates-io]
 lofty = { git = "https://github.com/mudssky/lofty-rs", branch = "myfix" }
 
