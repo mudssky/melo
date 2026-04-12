@@ -4,7 +4,7 @@ patched-crates
 
 docs/openapi
 
-.superpowers
+/.superpowers/
 
 node_modules
 local
