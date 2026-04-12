@@ -10,7 +10,7 @@ const hasRustChanges = (files) =>
     )
   })
 
-module.exports = {
+export default {
   '**/*.md': ['rumdl check --fix'],
   '*.{js,jsx,ts,tsx,css,html,json,jsonc}': 'biome check --write',
   '**/*': (files) => {
