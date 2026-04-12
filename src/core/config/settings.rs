@@ -75,6 +75,188 @@ impl Default for DaemonSettings {
     }
 }
 
+/// 日志等级配置。
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LoggingLevel {
+    Error,
+    #[default]
+    Warning,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl LoggingLevel {
+    /// 返回日志等级的稳定字符串表示。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `&'static str`：日志等级文本
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+            Self::Info => "info",
+            Self::Debug => "debug",
+            Self::Trace => "trace",
+        }
+    }
+
+    /// 返回两个日志等级中更详细的那个。
+    ///
+    /// # 参数
+    /// - `other`：另一个待比较的日志等级
+    ///
+    /// # 返回值
+    /// - `LoggingLevel`：更详细的日志等级
+    pub fn max(self, other: Self) -> Self {
+        if self.rank() >= other.rank() {
+            self
+        } else {
+            other
+        }
+    }
+
+    /// 返回日志等级的比较权重。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `u8`：日志等级权重，越大表示越详细
+    fn rank(self) -> u8 {
+        match self {
+            Self::Error => 1,
+            Self::Warning => 2,
+            Self::Info => 3,
+            Self::Debug => 4,
+            Self::Trace => 5,
+        }
+    }
+}
+
+impl std::str::FromStr for LoggingLevel {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "error" => Ok(Self::Error),
+            "warning" => Ok(Self::Warning),
+            "info" => Ok(Self::Info),
+            "debug" => Ok(Self::Debug),
+            "trace" => Ok(Self::Trace),
+            _ => Err(()),
+        }
+    }
+}
+
+/// 日志输出格式。
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LoggingFormat {
+    #[default]
+    Pretty,
+    Json,
+}
+
+impl LoggingFormat {
+    /// 返回日志格式的稳定字符串表示。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `&'static str`：日志格式文本
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pretty => "pretty",
+            Self::Json => "json",
+        }
+    }
+}
+
+/// 单组件日志配置。
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct LoggingComponentSettings {
+    /// 组件级日志等级覆盖。
+    pub level: Option<LoggingLevel>,
+    /// 是否启用文件日志。
+    pub file_enabled: bool,
+    /// 文件日志路径。
+    pub file_path: Option<String>,
+    /// 是否启用终端前缀。
+    pub prefix_enabled: Option<bool>,
+}
+
+/// Daemon 组件日志配置。
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct DaemonLoggingSettings {
+    /// 组件级日志等级覆盖。
+    pub level: Option<LoggingLevel>,
+    /// 是否启用文件日志。
+    pub file_enabled: bool,
+    /// 文件日志路径。
+    pub file_path: Option<String>,
+    /// 是否启用终端前缀。
+    pub prefix_enabled: Option<bool>,
+    /// 是否允许运行时临时提升级别。
+    pub allow_runtime_level_override: bool,
+}
+
+impl Default for DaemonLoggingSettings {
+    fn default() -> Self {
+        Self {
+            level: None,
+            file_enabled: true,
+            file_path: None,
+            prefix_enabled: None,
+            allow_runtime_level_override: true,
+        }
+    }
+}
+
+/// 日志总配置。
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct LoggingSettings {
+    /// 全局默认日志等级。
+    pub level: LoggingLevel,
+    /// 终端输出格式。
+    pub terminal_format: LoggingFormat,
+    /// 文件输出格式。
+    pub file_format: LoggingFormat,
+    /// 是否默认启用前缀。
+    pub prefix_enabled: bool,
+    /// CLI 前缀文本。
+    pub cli_prefix: String,
+    /// Daemon 前缀文本。
+    pub daemon_prefix: String,
+    /// CLI 日志配置。
+    pub cli: LoggingComponentSettings,
+    /// Daemon 日志配置。
+    pub daemon: DaemonLoggingSettings,
+}
+
+impl Default for LoggingSettings {
+    fn default() -> Self {
+        Self {
+            level: LoggingLevel::Warning,
+            terminal_format: LoggingFormat::Pretty,
+            file_format: LoggingFormat::Json,
+            prefix_enabled: true,
+            cli_prefix: "cli".to_string(),
+            daemon_prefix: "daemon".to_string(),
+            cli: LoggingComponentSettings::default(),
+            daemon: DaemonLoggingSettings::default(),
+        }
+    }
+}
+
 /// MPV 后端相关配置。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -298,6 +480,9 @@ pub struct Settings {
     /// Daemon 配置。
     #[serde(default)]
     pub daemon: DaemonSettings,
+    /// 日志配置。
+    #[serde(default)]
+    pub logging: LoggingSettings,
     /// 播放器配置。
     #[serde(default)]
     pub player: PlayerSettings,
@@ -354,6 +539,24 @@ impl Settings {
             .set_default("daemon.port_search_limit", 32)
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("daemon.docs", DaemonDocsMode::Local.as_str())
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("logging.level", LoggingLevel::Warning.as_str())
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("logging.terminal_format", LoggingFormat::Pretty.as_str())
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("logging.file_format", LoggingFormat::Json.as_str())
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("logging.prefix_enabled", true)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("logging.cli_prefix", "cli")
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("logging.daemon_prefix", "daemon")
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("logging.cli.file_enabled", false)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("logging.daemon.file_enabled", true)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("logging.daemon.allow_runtime_level_override", true)
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("player.backend", "auto")
             .map_err(|err| MeloError::Message(err.to_string()))?

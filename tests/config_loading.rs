@@ -172,3 +172,54 @@ tui_failed = "Failed {{ error_message }}"
         Some("{{ indexed_count }} / {{ discovered_count }} · {{ current_item_name }}")
     );
 }
+
+#[test]
+fn settings_load_logging_defaults_and_component_overrides() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[database]
+path = "local/melo.db"
+
+[logging]
+level = "warning"
+terminal_format = "pretty"
+file_format = "json"
+prefix_enabled = false
+cli_prefix = "term"
+daemon_prefix = "svc"
+
+[logging.cli]
+file_enabled = true
+file_path = "logs/cli.log"
+
+[logging.daemon]
+file_enabled = true
+file_path = "logs/daemon.log"
+allow_runtime_level_override = true
+"#,
+    )
+    .unwrap();
+
+    let settings = Settings::load_from_path(&path).unwrap();
+
+    assert_eq!(settings.logging.level.as_str(), "warning");
+    assert_eq!(settings.logging.terminal_format.as_str(), "pretty");
+    assert_eq!(settings.logging.file_format.as_str(), "json");
+    assert!(!settings.logging.prefix_enabled);
+    assert_eq!(settings.logging.cli_prefix, "term");
+    assert_eq!(settings.logging.daemon_prefix, "svc");
+    assert!(settings.logging.cli.file_enabled);
+    assert_eq!(
+        settings.logging.cli.file_path.as_deref(),
+        Some("logs/cli.log")
+    );
+    assert!(settings.logging.daemon.file_enabled);
+    assert_eq!(
+        settings.logging.daemon.file_path.as_deref(),
+        Some("logs/daemon.log")
+    );
+    assert!(settings.logging.daemon.allow_runtime_level_override);
+}

@@ -171,6 +171,26 @@ melo daemon docs --print
 melo daemon docs --print --openapi
 ```
 
+### 日志与 verbose 诊断
+
+```bash
+melo --verbose
+melo --log-level debug status
+melo --daemon-log-level trace play
+melo --verbose --no-log-prefix D:/Music
+```
+
+说明：
+
+- `melo --verbose`
+  - 为当前命令打开更详细的启动链路日志，并在可行时把 daemon 日志镜像到当前终端
+- `--log-level <level>`
+  - 精确覆盖当前 CLI 进程的日志等级
+- `--daemon-log-level <level>`
+  - 仅对由当前命令自动拉起的 daemon 生效；不会追溯影响已经在运行的 daemon
+- `--no-log-prefix`
+  - 隐藏终端里的 `[cli]` / `[daemon]` 前缀
+
 ### 临时歌单维护
 
 ```bash

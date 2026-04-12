@@ -102,3 +102,16 @@ fn daemon_help_lists_management_commands_and_flags() {
         .stdout(predicate::str::contains("--json"))
         .stdout(predicate::str::contains("--verbose"));
 }
+
+#[test]
+fn root_help_lists_global_logging_flags() {
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--verbose"))
+        .stdout(predicate::str::contains("--log-level"))
+        .stdout(predicate::str::contains("--no-log-prefix"))
+        .stdout(predicate::str::contains("--daemon-log-level"));
+}

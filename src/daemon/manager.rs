@@ -34,6 +34,15 @@ pub struct RestartResult {
     pub current: DaemonObservation,
 }
 
+/// 启动链路确保 daemon 可用后的结果。
+#[derive(Debug, Clone)]
+pub struct EnsuredDaemon {
+    /// 当前可访问的 daemon 基础地址。
+    pub base_url: String,
+    /// 当前命令是否复用了已有 daemon。
+    pub already_running: bool,
+}
+
 /// 启动 daemon，并等待到可观测状态稳定。
 ///
 /// # 参数
@@ -204,6 +213,56 @@ pub async fn ensure_running(settings: &Settings) -> MeloResult<String> {
     observation
         .base_url
         .ok_or_else(|| MeloError::Message("daemon_not_running".to_string()))
+}
+
+/// 在保留启动链路日志上下文的前提下确保 daemon 可用。
+///
+/// # 参数
+/// - `settings`：当前配置
+/// - `overrides`：当前命令的日志覆盖项
+///
+/// # 返回值
+/// - `MeloResult<EnsuredDaemon>`：可访问 daemon 的地址与复用信息
+pub async fn ensure_running_with_logging(
+    settings: &Settings,
+    overrides: &crate::core::logging::CliLogOverrides,
+) -> MeloResult<EnsuredDaemon> {
+    let base_url = crate::daemon::process::resolve_base_url(settings).await?;
+    let client = crate::cli::client::ApiClient::new(base_url.clone());
+    if client.health().await.is_ok() {
+        return Ok(EnsuredDaemon {
+            base_url,
+            already_running: true,
+        });
+    }
+
+    tracing::info!(target: "melo::cli::startup", "starting_daemon");
+    let resolved_daemon = crate::core::logging::resolve_logging_options(
+        settings,
+        crate::core::logging::LogComponent::Daemon,
+        overrides,
+    );
+    let launch_overrides = crate::daemon::process::DaemonLaunchOverrides {
+        daemon_log_level: if overrides.verbose || overrides.daemon_log_level.is_some() {
+            Some(resolved_daemon.level.as_str().to_string())
+        } else {
+            None
+        },
+        command_id: std::env::var("MELO_COMMAND_ID").ok(),
+    };
+    let paths = crate::daemon::registry::runtime_paths()?;
+    let observation = start_with_paths(settings, &paths, || {
+        crate::daemon::process::spawn_background_daemon_with_overrides(&launch_overrides)
+    })
+    .await?
+    .observation;
+
+    Ok(EnsuredDaemon {
+        base_url: observation
+            .base_url
+            .ok_or_else(|| MeloError::Message("daemon_not_running".to_string()))?,
+        already_running: false,
+    })
 }
 
 /// 读取日志文件尾部。

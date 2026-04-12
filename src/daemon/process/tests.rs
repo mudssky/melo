@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::daemon::process::{daemon_bind_addr, daemon_command};
+use crate::daemon::process::{DaemonLaunchOverrides, daemon_bind_addr, daemon_command};
 
 #[test]
 fn daemon_bind_addr_uses_meolo_base_url_port() {
@@ -10,13 +10,41 @@ fn daemon_bind_addr_uses_meolo_base_url_port() {
 
 #[test]
 fn daemon_command_uses_hidden_run_subcommand() {
-    let command = daemon_command(PathBuf::from("melo.exe"));
+    let command = daemon_command(PathBuf::from("melo.exe"), &DaemonLaunchOverrides::default());
     let args = command
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
 
     assert_eq!(args, vec!["daemon".to_string(), "run".to_string()]);
+}
+
+#[test]
+fn daemon_command_propagates_runtime_logging_env() {
+    let command = daemon_command(
+        PathBuf::from("melo.exe"),
+        &DaemonLaunchOverrides {
+            daemon_log_level: Some("trace".to_string()),
+            command_id: Some("command-1".to_string()),
+        },
+    );
+    let envs = command
+        .get_envs()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.map(|item| item.to_string_lossy().into_owned()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(envs.iter().any(|(key, value)| {
+        key == "MELO_DAEMON_LOG_LEVEL_OVERRIDE" && value.as_deref() == Some("trace")
+    }));
+    assert!(
+        envs.iter()
+            .any(|(key, value)| key == "MELO_COMMAND_ID" && value.as_deref() == Some("command-1"))
+    );
 }
 
 #[tokio::test]

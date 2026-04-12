@@ -1,65 +1,46 @@
-use std::fs::OpenOptions;
-use std::sync::Arc;
-
-use tracing_subscriber::fmt::writer::MakeWriterExt;
-
-/// 判断当前是否以隐藏的 daemon 子进程模式运行。
-///
-/// # 参数
-/// - `raw_args`：命令行参数
-///
-/// # 返回值
-/// - `bool`：是否为 `melo daemon run`
-fn daemon_run_requested(raw_args: &[String]) -> bool {
-    matches!(raw_args.get(1).map(String::as_str), Some("daemon"))
-        && matches!(raw_args.get(2).map(String::as_str), Some("run"))
-}
-
-/// 初始化 tracing，并在隐藏 daemon 运行模式下把日志同时写到 stdout 与固定日志文件。
-///
-/// # 参数
-/// - `raw_args`：命令行参数
-///
-/// # 返回值
-/// - 无
-fn init_tracing(raw_args: &[String]) {
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-
-    if daemon_run_requested(raw_args)
-        && let Ok(paths) = melo::daemon::registry::runtime_paths()
-    {
-        if let Some(parent) = paths.log_file.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-
-        if let Ok(file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&paths.log_file)
-        {
-            let writer = std::io::stdout.and(Arc::new(file));
-            let _ = tracing_subscriber::fmt()
-                .with_env_filter(env_filter)
-                .with_target(false)
-                .with_writer(writer)
-                .try_init();
-            return;
-        }
-    }
-
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_target(false)
-        .try_init();
-}
-
 #[tokio::main]
 async fn main() {
-    let raw_args = std::env::args().collect::<Vec<_>>();
-    init_tracing(&raw_args);
+    let raw_args = std::env::args_os().collect::<Vec<_>>();
+    let mut prepared = melo::cli::global_flags::prepare_args(&raw_args).unwrap_or_else(|err| {
+        eprintln!("{err}");
+        std::process::exit(1);
+    });
+    let settings = melo::core::config::settings::Settings::load().unwrap_or_default();
+    let component = if matches!(
+        prepared.clap_args.get(1).and_then(|arg| arg.to_str()),
+        Some("daemon")
+    ) && matches!(
+        prepared.clap_args.get(2).and_then(|arg| arg.to_str()),
+        Some("run")
+    ) {
+        melo::core::logging::LogComponent::Daemon
+    } else {
+        melo::core::logging::LogComponent::Cli
+    };
+    if matches!(component, melo::core::logging::LogComponent::Daemon)
+        && prepared.logging.daemon_log_level.is_none()
+    {
+        prepared.logging.daemon_log_level = std::env::var("MELO_DAEMON_LOG_LEVEL_OVERRIDE")
+            .ok()
+            .and_then(|value| value.parse().ok());
+    }
+    let command_id =
+        std::env::var("MELO_COMMAND_ID").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+    unsafe {
+        std::env::set_var("MELO_COMMAND_ID", &command_id);
+    }
+    melo::core::logging::init_tracing(
+        &settings,
+        component,
+        &prepared.logging,
+        melo::core::logging::RuntimeLogContext {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            command_id,
+        },
+    );
 
-    if let Err(err) = melo::cli::run().await {
+    if let Err(err) = melo::cli::run::run_prepared(prepared).await {
+        tracing::error!(error = %err, "command_failed");
         eprintln!("{err}");
         std::process::exit(1);
     }

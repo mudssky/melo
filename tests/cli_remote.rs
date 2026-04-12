@@ -175,6 +175,40 @@ port_search_limit = 0
         .stderr(predicate::str::contains("failed to prepare database"));
 }
 
+#[test]
+fn daemon_run_writes_json_logs_to_daemon_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+    let config_path = temp.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[database]
+path = "bad<>/melo.db"
+
+[logging]
+level = "info"
+file_format = "json"
+
+[logging.daemon]
+file_enabled = true
+file_path = "daemon.log"
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_CONFIG_PATH", &config_path);
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("daemon").arg("run");
+    cmd.assert().failure();
+
+    let contents = std::fs::read_to_string(temp.path().join("daemon.log")).unwrap();
+    let line = contents.lines().last().unwrap();
+    let json: serde_json::Value = serde_json::from_str(line).unwrap();
+    assert_eq!(json["component"], "daemon");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn status_command_uses_registered_daemon_url() {
     let state = melo::daemon::app::AppState::for_test().await;
@@ -244,6 +278,83 @@ async fn explicit_open_command_prints_stable_error_body() {
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("unsupported_open_format"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn verbose_explicit_open_prints_stage_logs_before_business_error() {
+    let app = melo::daemon::app::test_router().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_BASE_URL", format!("http://{addr}"));
+    cmd.arg("--verbose").arg("cover.jpg");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("[cli]"))
+        .stderr(predicate::str::contains("loading_settings"))
+        .stderr(predicate::str::contains("opening_explicit_target"));
+}
+
+#[test]
+fn verbose_default_launch_prints_daemon_prepare_failure_excerpt() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+    let config_path = temp.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[database]
+path = "bad<>/melo.db"
+
+[daemon]
+host = "127.0.0.1"
+base_port = 65529
+port_search_limit = 0
+
+[open]
+scan_current_dir = false
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_CONFIG_PATH", &config_path);
+    cmd.env("MELO_DAEMON_STATE_FILE", &state_file);
+    cmd.arg("--verbose");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("[cli]"))
+        .stderr(predicate::str::contains("starting_daemon"))
+        .stderr(predicate::str::contains("[daemon]"))
+        .stderr(predicate::str::contains("failed to prepare database"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn verbose_flag_can_disable_terminal_prefixes() {
+    let app = melo::daemon::app::test_router().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_BASE_URL", format!("http://{addr}"));
+    cmd.arg("--verbose").arg("--no-log-prefix").arg("cover.jpg");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("opening_explicit_target"))
+        .stderr(predicate::str::contains("[cli]").not())
+        .stderr(predicate::str::contains("[daemon]").not());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -401,6 +512,28 @@ async fn daemon_status_command_supports_json_and_verbose_views() {
         .success()
         .stdout(predicate::str::contains("registration_path"))
         .stdout(predicate::str::contains("log_path"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn daemon_log_level_override_reports_scope_limit_when_daemon_is_already_running() {
+    let app = melo::daemon::app::test_router().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let mut cmd = Command::cargo_bin("melo").unwrap();
+    cmd.env("MELO_BASE_URL", format!("http://{addr}"));
+    cmd.arg("--verbose")
+        .arg("--daemon-log-level")
+        .arg("trace")
+        .arg("play");
+
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "daemon_log_level_override_not_applied_to_running_daemon",
+    ));
 }
 
 #[tokio::test]

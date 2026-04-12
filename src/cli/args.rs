@@ -1,4 +1,21 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+
+/// 顶层全局日志参数。
+#[derive(Debug, Clone, Args, Default)]
+pub struct GlobalLogArgs {
+    /// 启用当前命令的详细日志输出。
+    #[arg(long)]
+    pub verbose: bool,
+    /// 显式覆盖当前 CLI 的日志等级。
+    #[arg(long)]
+    pub log_level: Option<String>,
+    /// 关闭终端输出前缀。
+    #[arg(long)]
+    pub no_log_prefix: bool,
+    /// 显式覆盖当前命令拉起的 daemon 日志等级。
+    #[arg(long)]
+    pub daemon_log_level: Option<String>,
+}
 
 /// Melo 顶层命令行参数。
 #[derive(Debug, Parser)]
@@ -10,6 +27,9 @@ use clap::{Parser, Subcommand};
     after_help = "Examples:\n  melo\n  melo D:/Music\n  melo daemon\n  melo status\n  melo playlist cleanup"
 )]
 pub struct CliArgs {
+    /// 顶层日志参数。
+    #[command(flatten)]
+    pub logging: GlobalLogArgs,
     /// 顶层子命令。
     #[command(subcommand)]
     pub command: Option<Command>,

@@ -65,7 +65,7 @@ sea-orm-migration = { version = "1.1.20", default-features = false, features = [
 ] }
 tokio-tungstenite = "0.29.0"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 tower-http = { version = "0.6.8", features = ["cors", "trace"] }
 unicode-width = "0.2.2"
 utoipa = { version = "5.4.0", features = ["axum_extras"] }

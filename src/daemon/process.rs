@@ -6,6 +6,15 @@ use std::time::Duration;
 use crate::core::config::settings::Settings;
 use crate::core::error::{MeloError, MeloResult};
 
+/// 启动 daemon 子进程时附带的运行时覆盖项。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DaemonLaunchOverrides {
+    /// 传给 daemon 的临时日志等级。
+    pub daemon_log_level: Option<String>,
+    /// 当前命令 ID，用于把父命令与子 daemon 日志关联起来。
+    pub command_id: Option<String>,
+}
+
 /// 从 daemon 基础地址推导监听地址。
 ///
 /// # 参数
@@ -26,12 +35,19 @@ pub fn daemon_bind_addr(base_url: &str) -> MeloResult<SocketAddr> {
 ///
 /// # 参数
 /// - `current_exe`：当前可执行文件路径
+/// - `overrides`：要透传给 daemon 的运行时覆盖项
 ///
 /// # 返回值
 /// - `Command`：已配置好的子进程命令
-pub fn daemon_command(current_exe: PathBuf) -> Command {
+pub fn daemon_command(current_exe: PathBuf, overrides: &DaemonLaunchOverrides) -> Command {
     let mut command = Command::new(current_exe);
     command.arg("daemon").arg("run");
+    if let Some(level) = &overrides.daemon_log_level {
+        command.env("MELO_DAEMON_LOG_LEVEL_OVERRIDE", level);
+    }
+    if let Some(command_id) = &overrides.command_id {
+        command.env("MELO_COMMAND_ID", command_id);
+    }
     command.stdin(Stdio::null());
     command.stdout(Stdio::null());
     command.stderr(Stdio::null());
@@ -46,8 +62,19 @@ pub fn daemon_command(current_exe: PathBuf) -> Command {
 /// # 返回值
 /// - `MeloResult<()>`：启动结果
 pub fn spawn_background_daemon() -> MeloResult<()> {
+    spawn_background_daemon_with_overrides(&DaemonLaunchOverrides::default())
+}
+
+/// 带运行时覆盖项地后台拉起 daemon 子进程。
+///
+/// # 参数
+/// - `overrides`：需要透传给子进程的运行时覆盖项
+///
+/// # 返回值
+/// - `MeloResult<()>`：启动结果
+pub fn spawn_background_daemon_with_overrides(overrides: &DaemonLaunchOverrides) -> MeloResult<()> {
     let current_exe = std::env::current_exe().map_err(|err| MeloError::Message(err.to_string()))?;
-    daemon_command(current_exe)
+    daemon_command(current_exe, overrides)
         .spawn()
         .map(|_| ())
         .map_err(|err| MeloError::Message(err.to_string()))

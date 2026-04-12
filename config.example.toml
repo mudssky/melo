@@ -14,6 +14,35 @@ port_search_limit = 32
 # 文档访问策略：disabled / local / network。
 docs = "local"
 
+[logging]
+# 终端与文件日志的默认等级。
+level = "warning"
+# 终端输出格式：pretty / json。
+terminal_format = "pretty"
+# 文件输出格式：pretty / json。
+file_format = "json"
+# 是否默认启用组件前缀。
+prefix_enabled = true
+# CLI 终端前缀。
+cli_prefix = "cli"
+# Daemon 终端前缀。
+daemon_prefix = "daemon"
+
+[logging.cli]
+# 是否启用 CLI 文件日志。
+file_enabled = true
+# CLI 文件日志路径。相对路径以配置文件所在目录解析。
+file_path = "logs/cli.log"
+
+[logging.daemon]
+# 是否启用 daemon 文件日志。
+file_enabled = true
+# daemon 文件日志路径。相对路径以配置文件所在目录解析。
+file_path = "logs/daemon.log"
+# 是否允许命令通过 --daemon-log-level 临时覆盖 daemon 级别。
+# 当前阶段只对“由本次命令自动拉起的 daemon”生效。
+allow_runtime_level_override = true
+
 [player]
 # 后端选择：`auto`、`rodio`、`mpv`。
 backend = "auto"
