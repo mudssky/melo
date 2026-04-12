@@ -302,7 +302,7 @@ struct ProcessObservation {
 async fn probe_http_status(registration: &DaemonRegistration) -> Option<DaemonStatusResponse> {
     tokio::time::timeout(
         Duration::from_millis(500),
-        crate::cli::client::ApiClient::new(registration.base_url.clone()).daemon_status(),
+        crate::cli::client::ApiClient::new_probe(registration.base_url.clone()).daemon_status(),
     )
     .await
     .ok()

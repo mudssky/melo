@@ -45,7 +45,7 @@ impl DaemonRuntimeMeta {
         Ok(Self {
             instance_id: format!("instance-{}", Uuid::new_v4()),
             pid: std::process::id(),
-            started_at: crate::daemon::registry::now_started_at_text()?,
+            started_at: current_process_started_at_text(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             backend: backend.to_string(),
             log_path: paths.log_file.to_string_lossy().to_string(),
@@ -91,7 +91,7 @@ impl DaemonRuntimeMeta {
     }
 }
 
-/// 读取当前测试进程的真实启动时间文本，保证 pid + started_at 校验能命中本进程。
+/// 读取当前进程的真实启动时间文本，保证 pid + started_at 校验命中同一进程。
 ///
 /// # 参数
 /// - 无

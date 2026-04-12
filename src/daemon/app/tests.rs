@@ -1,5 +1,12 @@
 use std::fs;
 
+#[test]
+fn daemon_runtime_meta_live_uses_current_process_started_at_text() {
+    let runtime = super::DaemonRuntimeMeta::live("noop").unwrap();
+
+    assert_eq!(runtime.started_at, super::current_process_started_at_text());
+}
+
 #[tokio::test]
 async fn daemon_app_state_new_bootstraps_database_before_services_use_it() {
     let temp = tempfile::tempdir().unwrap();

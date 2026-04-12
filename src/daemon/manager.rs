@@ -228,7 +228,7 @@ pub async fn ensure_running_with_logging(
     overrides: &crate::core::logging::CliLogOverrides,
 ) -> MeloResult<EnsuredDaemon> {
     let base_url = crate::daemon::process::resolve_base_url(settings).await?;
-    let client = crate::cli::client::ApiClient::new(base_url.clone());
+    let client = crate::cli::client::ApiClient::new_probe(base_url.clone());
     if client.health().await.is_ok() {
         return Ok(EnsuredDaemon {
             base_url,

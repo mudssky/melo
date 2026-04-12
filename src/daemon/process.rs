@@ -123,7 +123,7 @@ pub async fn resolve_base_url(settings: &Settings) -> MeloResult<String> {
     }
 
     if let Some(registration) = crate::daemon::registry::load_registration().await? {
-        let client = crate::cli::client::ApiClient::new(registration.base_url.clone());
+        let client = crate::cli::client::ApiClient::new_probe(registration.base_url.clone());
         if client.health().await.is_ok() {
             return Ok(registration.base_url);
         }
@@ -145,7 +145,7 @@ pub async fn resolve_base_url(settings: &Settings) -> MeloResult<String> {
 /// - `MeloResult<String>`：实际可访问的 daemon 基础地址
 pub async fn ensure_running(settings: &Settings) -> MeloResult<String> {
     let base_url = resolve_base_url(settings).await?;
-    let client = crate::cli::client::ApiClient::new(base_url.clone());
+    let client = crate::cli::client::ApiClient::new_probe(base_url.clone());
     if client.health().await.is_ok() {
         return Ok(base_url);
     }
@@ -155,7 +155,7 @@ pub async fn ensure_running(settings: &Settings) -> MeloResult<String> {
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_millis(150)).await;
         let resolved = resolve_base_url(settings).await?;
-        let client = crate::cli::client::ApiClient::new(resolved.clone());
+        let client = crate::cli::client::ApiClient::new_probe(resolved.clone());
         if client.health().await.is_ok() {
             return Ok(resolved);
         }

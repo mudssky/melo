@@ -23,9 +23,9 @@ pub enum ObservedDaemon {
 /// - `MeloResult<ObservedDaemon>`：观察结果
 pub async fn observe_read_only_daemon() -> MeloResult<ObservedDaemon> {
     let client = if let Ok(base_url) = std::env::var("MELO_BASE_URL") {
-        ApiClient::new(base_url)
+        ApiClient::new_probe(base_url)
     } else if let Some(registration) = crate::daemon::registry::load_registration().await? {
-        ApiClient::new(registration.base_url)
+        ApiClient::new_probe(registration.base_url)
     } else {
         return Ok(unavailable_daemon());
     };
@@ -70,3 +70,6 @@ fn unavailable_daemon() -> ObservedDaemon {
         hint: "run `melo daemon start`".to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests;

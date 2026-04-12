@@ -4,6 +4,8 @@ use crate::core::error::{MeloError, MeloResult};
 use crate::core::model::player::PlayerSnapshot;
 use crate::domain::open::service::OpenResponse;
 
+const DAEMON_PROBE_TIMEOUT_MS: u64 = 500;
+
 /// 命令行客户端对 daemon HTTP API 的最小封装。
 #[derive(Clone)]
 pub struct ApiClient {
@@ -21,7 +23,23 @@ impl ApiClient {
     /// - `Self`：客户端实例
     pub fn new(base_url: String) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: build_client(None),
+            base_url,
+        }
+    }
+
+    /// 创建用于 daemon 探测的短超时客户端。
+    ///
+    /// # 参数
+    /// - `base_url`：daemon 基础地址
+    ///
+    /// # 返回
+    /// - `Self`：带短超时保护的客户端实例
+    pub fn new_probe(base_url: String) -> Self {
+        Self {
+            client: build_client(Some(std::time::Duration::from_millis(
+                DAEMON_PROBE_TIMEOUT_MS,
+            ))),
             base_url,
         }
     }
@@ -436,4 +454,20 @@ impl ApiClient {
         )
         .await
     }
+}
+
+/// 根据可选超时构建 reqwest 客户端。
+///
+/// # 参数
+/// - `timeout`：可选的请求超时；为 `None` 时表示使用 reqwest 默认行为
+///
+/// # 返回值
+/// - `reqwest::Client`：构建好的 HTTP 客户端
+fn build_client(timeout: Option<std::time::Duration>) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder();
+    if let Some(timeout) = timeout {
+        builder = builder.timeout(timeout);
+    }
+
+    builder.build().unwrap_or_else(|_| reqwest::Client::new())
 }
