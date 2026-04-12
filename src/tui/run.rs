@@ -20,6 +20,21 @@ pub struct LaunchContext {
     pub footer_hints_enabled: bool,
 }
 
+/// 计算下一个循环模式。
+///
+/// # 参数
+/// - `current`：当前循环模式
+///
+/// # 返回值
+/// - `&'static str`：下一个循环模式
+pub(crate) fn next_repeat_mode(current: &str) -> &'static str {
+    match current {
+        "off" => "all",
+        "all" => "one",
+        _ => "off",
+    }
+}
+
 /// 启动真实的 TUI 运行循环。
 ///
 /// # 参数
@@ -63,19 +78,23 @@ async fn run_loop(
     let renderer = crate::core::runtime_templates::RuntimeTemplateRenderer::default();
     let api_client = crate::cli::client::ApiClient::new(base_url.clone());
     let client = crate::tui::client::TuiClient::new(base_url);
-    let mut stream = client.connect().await?;
     let mut app = crate::tui::app::App::new_for_test();
-    app.apply_tui_snapshot(
-        stream
-            .next_json::<crate::core::model::tui::TuiSnapshot>()
-            .await?,
-    );
+    let home = api_client.tui_home().await?;
+    app.apply_tui_snapshot(home);
+    if let Some(selected) = app.selected_playlist_name().map(ToString::to_string) {
+        app.set_playlist_preview_loading();
+        match api_client.playlist_preview(&selected).await {
+            Ok(preview) => app.set_playlist_preview(&preview),
+            Err(err) => app.set_playlist_preview_error(err.to_string()),
+        }
+    }
     app.footer_hints_enabled = context.footer_hints_enabled;
     app.startup_notice = context.startup_notice;
     if let Some(source_label) = context.source_label {
         app.set_source_label(source_label);
     }
 
+    let mut stream = client.connect().await?;
     let (snapshot_tx, mut snapshot_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
         while let Ok(snapshot) = stream
@@ -96,7 +115,10 @@ async fn run_loop(
         terminal
             .draw(|frame| {
                 let layout = app.layout(frame.area());
-                let queue_lines = app.render_queue_lines().join("\n");
+                let playlist_lines =
+                    crate::tui::ui::playlist::render_playlist_lines(&app).join("\n");
+                let status_lines = crate::tui::ui::playlist::render_status_lines(&app).join("\n");
+                let preview_lines = crate::tui::ui::playlist::render_preview_lines(&app).join("\n");
 
                 if let Some(task_area) = layout.task_bar
                     && let Some(text) =
@@ -106,14 +128,19 @@ async fn run_loop(
                 }
 
                 frame.render_widget(
-                    Paragraph::new("Songs")
-                        .block(Block::default().borders(Borders::ALL).title("Views")),
+                    Paragraph::new(playlist_lines)
+                        .block(Block::default().borders(Borders::ALL).title("播放列表")),
                     layout.sidebar,
                 );
                 frame.render_widget(
-                    Paragraph::new(queue_lines)
-                        .block(Block::default().borders(Borders::ALL).title("Queue")),
-                    layout.content,
+                    Paragraph::new(status_lines)
+                        .block(Block::default().borders(Borders::ALL).title("当前播放来源")),
+                    layout.content_header,
+                );
+                frame.render_widget(
+                    Paragraph::new(preview_lines)
+                        .block(Block::default().borders(Borders::ALL).title("歌单预览")),
+                    layout.content_body,
                 );
                 frame.render_widget(
                     Paragraph::new(format!(
@@ -156,6 +183,43 @@ async fn run_loop(
                     }
                     Some(Action::Prev) => {
                         app.apply_snapshot(api_client.post_json("/api/player/prev").await?)
+                    }
+                    Some(Action::LoadSelectedPlaylistPreview) => {
+                        if let Some(name) = app.selected_playlist_name().map(ToString::to_string) {
+                            app.set_playlist_preview_loading();
+                            match api_client.playlist_preview(&name).await {
+                                Ok(preview) => app.set_playlist_preview(&preview),
+                                Err(err) => app.set_playlist_preview_error(err.to_string()),
+                            }
+                        }
+                    }
+                    Some(Action::PlaySelectedPlaylistFromStart) => {
+                        if let Some(name) = app.selected_playlist_name().map(ToString::to_string) {
+                            let snapshot = api_client.playlist_play(&name, 0).await?;
+                            app.apply_tui_snapshot(snapshot);
+                        }
+                    }
+                    Some(Action::PlaySelectedPreviewSong) => {
+                        if let Some(name) = app.selected_playlist_name().map(ToString::to_string) {
+                            let snapshot = api_client
+                                .playlist_play(&name, app.selected_preview_index())
+                                .await?;
+                            app.apply_tui_snapshot(snapshot);
+                        }
+                    }
+                    Some(Action::CycleRepeatMode) => {
+                        app.apply_snapshot(
+                            api_client
+                                .player_mode_repeat(next_repeat_mode(&app.player.repeat_mode))
+                                .await?,
+                        );
+                    }
+                    Some(Action::ToggleShuffle) => {
+                        app.apply_snapshot(
+                            api_client
+                                .player_mode_shuffle(!app.player.shuffle_enabled)
+                                .await?,
+                        );
                     }
                     Some(Action::OpenHelp) => {}
                     Some(Action::Quit) => break,

@@ -9,13 +9,13 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 /// - `Vec<&'static str>`：帮助提示列表
 pub fn help_lines() -> Vec<&'static str> {
     vec![
-        "Playback",
-        "Space: Play/Pause",
-        ">: Next",
-        "<: Previous",
-        "General",
-        "?: Toggle Help",
-        "q: Close Help / Quit",
+        "Tab 切换焦点",
+        "Enter 播放当前选择",
+        "r 切换循环模式",
+        "s 切换随机播放",
+        "Space 播放/暂停",
+        "? 打开帮助",
+        "q 退出",
     ]
 }
 

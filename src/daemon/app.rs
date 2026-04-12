@@ -109,6 +109,49 @@ fn current_process_started_at_text() -> String {
         .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
 }
 
+/// 测试态 metadata reader，允许 integration tests 使用伪造音频文件跑通扫描链路。
+struct FixtureMetadataReader;
+
+impl crate::domain::library::metadata::MetadataReader for FixtureMetadataReader {
+    /// 为测试文件构造稳定的元数据。
+    ///
+    /// # 参数
+    /// - `path`：音频文件路径
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::domain::library::metadata::SongMetadata>`：伪造的歌曲元数据
+    fn read(
+        &self,
+        path: &std::path::Path,
+    ) -> MeloResult<crate::domain::library::metadata::SongMetadata> {
+        Ok(crate::domain::library::metadata::SongMetadata {
+            title: path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            artist: Some("Fixture Artist".to_string()),
+            album: Some("Fixture Album".to_string()),
+            track_no: None,
+            disc_no: None,
+            duration_seconds: Some(180.0),
+            genre: None,
+            lyrics: None,
+            lyrics_source_kind: crate::domain::library::metadata::LyricsSourceKind::None,
+            lyrics_format: None,
+            embedded_artwork: None,
+            format: path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.to_string()),
+            bitrate: None,
+            sample_rate: None,
+            bit_depth: None,
+            channels: None,
+        })
+    }
+}
+
 /// daemon 共享应用状态。
 #[derive(Clone)]
 pub struct AppState {
@@ -304,7 +347,7 @@ impl AppState {
             backend,
             settings,
             DaemonRuntimeMeta::for_test("noop"),
-            LibraryService::for_test,
+            |settings| LibraryService::new(settings, Arc::new(FixtureMetadataReader)),
         )
     }
 

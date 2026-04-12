@@ -1,0 +1,37 @@
+use melo::core::config::settings::Settings;
+use melo::core::db::bootstrap::DatabaseBootstrap;
+use melo::daemon::app::AppState;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn direct_open_updates_tui_home_default_selected_playlist() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("01-first.flac"), b"audio").unwrap();
+
+    let mut settings = Settings::for_test(temp.path().join("melo.db"));
+    settings.open.max_depth = 1;
+    settings.open.prewarm_limit = 1;
+    DatabaseBootstrap::new(&settings).init().await.unwrap();
+
+    let state = AppState::for_test_with_settings(settings.clone()).await;
+    let response = state
+        .open_target(melo::domain::open::service::OpenRequest {
+            target: temp.path().to_string_lossy().to_string(),
+            mode: "cwd_dir".to_string(),
+        })
+        .await
+        .unwrap();
+
+    let snapshot = state.tui_snapshot().await.unwrap();
+    assert_eq!(response.playlist_name, temp.path().to_string_lossy());
+    assert_eq!(
+        snapshot
+            .playlist_browser
+            .default_selected_playlist
+            .as_deref(),
+        Some(temp.path().to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        snapshot.playlist_browser.default_view,
+        melo::core::model::tui::TuiViewKind::Playlist
+    );
+}

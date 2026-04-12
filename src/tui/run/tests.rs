@@ -33,3 +33,10 @@ fn top_task_bar_layout_only_reserves_space_when_needed() {
     assert!(compact.task_bar.is_none());
     assert!(full.content.y > compact.content.y);
 }
+
+#[test]
+fn repeat_mode_cycles_off_all_one_off() {
+    assert_eq!(crate::tui::run::next_repeat_mode("off"), "all");
+    assert_eq!(crate::tui::run::next_repeat_mode("all"), "one");
+    assert_eq!(crate::tui::run::next_repeat_mode("one"), "off");
+}
