@@ -308,17 +308,33 @@ impl Default for PlayerSettings {
 }
 
 /// TUI 相关配置。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum TuiBindingSpec {
+    /// 单个按键或组合键。
+    Chord(String),
+    /// 多步按键序列。
+    Sequence(Vec<String>),
+}
+
+/// TUI 相关配置。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct TuiSettings {
     /// 是否显示底部帮助提示。
     pub show_footer_hints: bool,
+    /// 是否启用鼠标输入。
+    pub mouse_enabled: bool,
+    /// TUI 动作到按键绑定的覆盖配置。
+    pub keymap: BTreeMap<String, Vec<TuiBindingSpec>>,
 }
 
 impl Default for TuiSettings {
     fn default() -> Self {
         Self {
             show_footer_hints: true,
+            mouse_enabled: true,
+            keymap: BTreeMap::new(),
         }
     }
 }
@@ -583,6 +599,8 @@ impl Settings {
             .set_default("playlists.ephemeral.default_ttl_seconds", 0)
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("tui.show_footer_hints", true)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("tui.mouse_enabled", true)
             .map_err(|err| MeloError::Message(err.to_string()))?;
 
         let mut settings: Self = builder

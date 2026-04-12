@@ -223,3 +223,30 @@ allow_runtime_level_override = true
     );
     assert!(settings.logging.daemon.allow_runtime_level_override);
 }
+
+#[test]
+fn settings_load_tui_keymap_and_mouse_toggle() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[tui]
+show_footer_hints = true
+mouse_enabled = true
+
+[tui.keymap]
+focus_next = ["tab", "l"]
+focus_prev = ["shift+tab", "h"]
+jump_top = ["home", ["g", "g"]]
+"#,
+    )
+    .unwrap();
+
+    let settings = Settings::load_from_path(&path).unwrap();
+    assert!(settings.tui.mouse_enabled);
+    assert_eq!(
+        settings.tui.keymap.get("focus_next").unwrap()[0],
+        melo::core::config::settings::TuiBindingSpec::Chord("tab".to_string())
+    );
+}

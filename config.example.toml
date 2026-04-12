@@ -86,6 +86,29 @@ cwd_dir = true
 [tui]
 # 是否显示底部快捷键提示。
 show_footer_hints = true
+# 是否启用鼠标操作。
+mouse_enabled = true
+
+[tui.keymap]
+# 焦点切换。
+focus_next = ["tab", "l"]
+focus_prev = ["shift+tab", "h"]
+# 列表导航。
+move_up = ["up", "k"]
+move_down = ["down", "j"]
+jump_top = ["home", ["g", "g"]]
+jump_bottom = ["end", "shift+g"]
+page_up = ["pageup"]
+page_down = ["pagedown"]
+# 通用确认与播放器控制。
+activate = ["enter"]
+toggle_playback = ["space"]
+next = [">"]
+prev = ["<"]
+cycle_repeat_mode = ["r"]
+toggle_shuffle = ["s"]
+open_help = ["?"]
+quit = ["q"]
 
 [templates.runtime.scan]
 # 目录扫描开始时输出给 CLI 的提示。
