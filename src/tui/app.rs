@@ -19,6 +19,8 @@ pub enum FocusArea {
 pub struct App {
     /// 当前播放器快照。
     pub player: PlayerSnapshot,
+    /// 当前活动运行时任务。
+    pub active_task: Option<crate::core::model::runtime_task::RuntimeTaskSnapshot>,
     /// 当前激活视图。
     pub active_view: ActiveView,
     /// 当前焦点区域。
@@ -46,6 +48,7 @@ impl App {
     pub fn new_for_test() -> Self {
         Self {
             player: PlayerSnapshot::default(),
+            active_task: None,
             active_view: ActiveView::Songs,
             focus: FocusArea::Content,
             source_label: None,
@@ -103,6 +106,18 @@ impl App {
     pub fn apply_snapshot(&mut self, snapshot: PlayerSnapshot) {
         self.queue_titles = snapshot.queue_preview.clone();
         self.player = snapshot;
+    }
+
+    /// 用 TUI 聚合快照刷新本地状态。
+    ///
+    /// # 参数
+    /// - `snapshot`：TUI 聚合快照
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn apply_tui_snapshot(&mut self, snapshot: crate::core::model::tui::TuiSnapshot) {
+        self.apply_snapshot(snapshot.player);
+        self.active_task = snapshot.active_task;
     }
 
     /// 设置当前启动来源标签。
@@ -196,7 +211,7 @@ impl App {
     /// # 返回值
     /// - `AppLayout`：拆分后的 TUI 布局
     pub fn layout(&self, area: Rect) -> crate::tui::ui::layout::AppLayout {
-        crate::tui::ui::layout::split(area)
+        crate::tui::ui::layout::split(area, self.active_task.is_some())
     }
 
     /// 按显示宽度格式化歌曲标题。
@@ -209,5 +224,47 @@ impl App {
     /// - `String`：适配宽度后的显示文本
     pub fn format_song_title(&self, title: &str, width: usize) -> String {
         crate::tui::ui::content::render_song_title(title, width)
+    }
+
+    /// 基于当前活动任务生成顶部任务栏文案。
+    ///
+    /// # 参数
+    /// - `renderer`：运行时模板渲染器
+    /// - `settings`：全局配置
+    /// - `width`：可用显示宽度
+    ///
+    /// # 返回值
+    /// - `Option<String>`：任务栏文案；无活动任务时返回 `None`
+    pub fn task_bar_text(
+        &self,
+        renderer: &crate::core::runtime_templates::RuntimeTemplateRenderer,
+        settings: &crate::core::config::settings::Settings,
+        width: usize,
+    ) -> Option<String> {
+        let task = self.active_task.as_ref()?;
+        let key = match task.phase {
+            crate::core::model::runtime_task::RuntimeTaskPhase::Completed => {
+                crate::core::runtime_templates::RuntimeTemplateKey::TuiScanDone
+            }
+            crate::core::model::runtime_task::RuntimeTaskPhase::Failed => {
+                crate::core::runtime_templates::RuntimeTemplateKey::TuiScanFailed
+            }
+            _ => crate::core::runtime_templates::RuntimeTemplateKey::TuiScanActive,
+        };
+
+        let rendered = renderer.render(
+            settings,
+            key,
+            serde_json::json!({
+                "source_label": task.source_label.as_str(),
+                "discovered_count": task.discovered_count,
+                "indexed_count": task.indexed_count,
+                "queued_count": task.queued_count,
+                "current_item_name": task.current_item_name.clone(),
+                "error_message": task.last_error.clone(),
+            }),
+        );
+
+        Some(crate::tui::ui::content::render_song_title(&rendered, width))
     }
 }

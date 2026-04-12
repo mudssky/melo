@@ -58,6 +58,18 @@ cwd_dir = true
 # 是否显示底部快捷键提示。
 show_footer_hints = true
 
+[templates.runtime.scan]
+# 目录扫描开始时输出给 CLI 的提示。
+cli_start = "Scanning {{ source_label }}..."
+# 预热完成、即将进入 TUI 时输出给 CLI 的提示。
+cli_handoff = "Launching TUI, background scan continues..."
+# TUI 顶部活动任务条。
+tui_active = "Scanning {{ source_label }}... {{ indexed_count }} / {{ discovered_count }} · {{ current_item_name }}"
+# 扫描完成后短暂显示的任务摘要。
+tui_done = "Scan complete: {{ queued_count }} tracks indexed"
+# 扫描失败后短暂显示的任务摘要。
+tui_failed = "Scan failed: {{ error_message }}"
+
 [library.organize]
 # 文件整理的基础目录。
 base_dir = "D:/Library"

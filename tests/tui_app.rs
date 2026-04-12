@@ -171,3 +171,62 @@ fn queue_panel_renders_loaded_titles() {
     assert!(content.iter().any(|line| line.contains("Blue Bird")));
     assert!(content.iter().any(|line| line.contains("Always Online")));
 }
+
+#[test]
+fn active_task_bar_renders_current_item_name() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.apply_tui_snapshot(melo::core::model::tui::TuiSnapshot {
+        player: melo::core::model::player::PlayerSnapshot::default(),
+        active_task: Some(melo::core::model::runtime_task::RuntimeTaskSnapshot {
+            task_id: "scan-1".into(),
+            kind: melo::core::model::runtime_task::RuntimeTaskKind::LibraryScan,
+            phase: melo::core::model::runtime_task::RuntimeTaskPhase::Indexing,
+            source_label: "D:/Music/Aimer".into(),
+            discovered_count: 240,
+            indexed_count: 12,
+            queued_count: 12,
+            current_item_name: Some("Ref:rain.flac".into()),
+            last_error: None,
+        }),
+    });
+
+    let text = app.task_bar_text(
+        &melo::core::runtime_templates::RuntimeTemplateRenderer::default(),
+        &melo::core::config::settings::Settings::default(),
+        120,
+    );
+
+    assert!(text.is_some());
+    assert!(text.unwrap().contains("Ref:rain.flac"));
+}
+
+#[test]
+fn active_task_bar_truncates_long_text_to_available_width() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.apply_tui_snapshot(melo::core::model::tui::TuiSnapshot {
+        player: melo::core::model::player::PlayerSnapshot::default(),
+        active_task: Some(melo::core::model::runtime_task::RuntimeTaskSnapshot {
+            task_id: "scan-1".into(),
+            kind: melo::core::model::runtime_task::RuntimeTaskKind::LibraryScan,
+            phase: melo::core::model::runtime_task::RuntimeTaskPhase::Indexing,
+            source_label: "D:/Very/Long/Source/Path/That/Should/Be/Trimmed".into(),
+            discovered_count: 240,
+            indexed_count: 12,
+            queued_count: 12,
+            current_item_name: Some(
+                "A very very long filename that should not overflow.flac".into(),
+            ),
+            last_error: None,
+        }),
+    });
+
+    let text = app
+        .task_bar_text(
+            &melo::core::runtime_templates::RuntimeTemplateRenderer::default(),
+            &melo::core::config::settings::Settings::default(),
+            40,
+        )
+        .unwrap();
+
+    assert!(unicode_width::UnicodeWidthStr::width(text.as_str()) <= 40);
+}

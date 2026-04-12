@@ -50,6 +50,7 @@ pub struct OrganizeCandidate {
 }
 
 /// 面向媒体库持久化的仓储。
+#[derive(Clone)]
 pub struct LibraryRepository {
     settings: Settings,
 }

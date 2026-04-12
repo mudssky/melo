@@ -25,3 +25,20 @@ path = "runtime/melo.db"
     assert!(temp.path().join("runtime").exists());
     assert!(temp.path().join("runtime/melo.db").exists());
 }
+
+#[tokio::test]
+async fn app_state_tui_snapshot_includes_active_runtime_task() {
+    let state = crate::daemon::app::AppState::for_test().await;
+    let handle = state
+        .runtime_tasks()
+        .start_scan("D:/Music/Aimer".to_string(), 4);
+    handle.mark_indexing(1, 1, Some("track-01.flac".to_string()));
+
+    let snapshot = state.tui_snapshot().await;
+
+    assert_eq!(snapshot.player.backend_name, "noop");
+    assert_eq!(
+        snapshot.active_task.unwrap().current_item_name.as_deref(),
+        Some("track-01.flac")
+    );
+}

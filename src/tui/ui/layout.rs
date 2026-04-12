@@ -3,6 +3,8 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 /// TUI 主布局区域。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppLayout {
+    /// 顶部任务栏区域。
+    pub task_bar: Option<Rect>,
     /// 侧边栏区域。
     pub sidebar: Rect,
     /// 主内容区域。
@@ -15,22 +17,38 @@ pub struct AppLayout {
 ///
 /// # 参数
 /// - `area`：可用矩形区域
+/// - `show_task_bar`：是否预留顶部任务栏
 ///
 /// # 返回值
 /// - `AppLayout`：拆分后的布局结构
-pub fn split(area: Rect) -> AppLayout {
+pub fn split(area: Rect, show_task_bar: bool) -> AppLayout {
+    let constraints = if show_task_bar {
+        vec![
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(3),
+        ]
+    } else {
+        vec![Constraint::Min(0), Constraint::Length(3)]
+    };
     let vertical = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(3)])
+        .constraints(constraints)
         .split(area);
+    let body = if show_task_bar {
+        vertical[1]
+    } else {
+        vertical[0]
+    };
     let horizontal = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(24), Constraint::Min(0)])
-        .split(vertical[0]);
+        .split(body);
 
     AppLayout {
+        task_bar: show_task_bar.then_some(vertical[0]),
         sidebar: horizontal[0],
         content: horizontal[1],
-        playbar: vertical[1],
+        playbar: *vertical.last().unwrap(),
     }
 }

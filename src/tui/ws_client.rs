@@ -1,14 +1,19 @@
 use futures_util::StreamExt;
-use tokio_tungstenite::connect_async;
+use serde::de::DeserializeOwned;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 use crate::core::error::{MeloError, MeloResult};
-use crate::core::model::player::PlayerSnapshot;
 
 /// 面向 WebSocket 的最小客户端封装。
 #[derive(Clone)]
 pub struct WsClient {
     url: String,
+}
+
+/// 面向持续快照消费场景的 WebSocket 流包装。
+pub struct WsSnapshotStream {
+    stream: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
 }
 
 impl WsClient {
@@ -23,22 +28,37 @@ impl WsClient {
         Self { url }
     }
 
-    /// 连接到 daemon 并读取第一条播放器快照。
+    /// 连接到 daemon 并返回可持续读取 JSON 快照的流。
     ///
     /// # 参数
     /// - 无
     ///
     /// # 返回值
-    /// - `MeloResult<PlayerSnapshot>`：读取到的播放器快照
-    pub async fn next_snapshot(&self) -> MeloResult<PlayerSnapshot> {
-        let (mut stream, _response) = connect_async(&self.url)
+    /// - `MeloResult<WsSnapshotStream>`：已连接的快照流
+    pub async fn connect(&self) -> MeloResult<WsSnapshotStream> {
+        let (stream, _response) = connect_async(&self.url)
             .await
             .map_err(|err| MeloError::Message(err.to_string()))?;
+        Ok(WsSnapshotStream { stream })
+    }
+}
 
-        while let Some(message) = stream.next().await {
+impl WsSnapshotStream {
+    /// 读取下一条 JSON 消息并反序列化成目标类型。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<T>`：反序列化后的消息体
+    pub async fn next_json<T>(&mut self) -> MeloResult<T>
+    where
+        T: DeserializeOwned,
+    {
+        while let Some(message) = self.stream.next().await {
             match message.map_err(|err| MeloError::Message(err.to_string()))? {
                 Message::Text(text) => {
-                    return serde_json::from_str::<PlayerSnapshot>(&text)
+                    return serde_json::from_str::<T>(&text)
                         .map_err(|err| MeloError::Message(err.to_string()));
                 }
                 Message::Close(_) => break,
@@ -46,6 +66,6 @@ impl WsClient {
             }
         }
 
-        Err(MeloError::Message("WebSocket 未收到播放器快照".to_string()))
+        Err(MeloError::Message("WebSocket 未收到快照".to_string()))
     }
 }

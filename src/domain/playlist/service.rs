@@ -16,6 +16,7 @@ pub struct PlaylistSummary {
 }
 
 /// 歌单服务，统一处理 static 与 smart 两种来源。
+#[derive(Clone)]
 pub struct PlaylistService {
     settings: Settings,
     repository: PlaylistRepository,

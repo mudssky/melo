@@ -141,6 +141,38 @@ impl Default for TuiSettings {
     }
 }
 
+/// 运行时扫描模板配置。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct RuntimeScanTemplateSettings {
+    /// CLI 扫描启动提示模板。
+    pub cli_start: Option<String>,
+    /// CLI 切入 TUI 的提示模板。
+    pub cli_handoff: Option<String>,
+    /// TUI 中活动扫描任务提示模板。
+    pub tui_active: Option<String>,
+    /// TUI 中扫描完成提示模板。
+    pub tui_done: Option<String>,
+    /// TUI 中扫描失败提示模板。
+    pub tui_failed: Option<String>,
+}
+
+/// 运行时模板配置。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct RuntimeTemplateSettings {
+    /// 扫描相关的运行时模板集合。
+    pub scan: RuntimeScanTemplateSettings,
+}
+
+/// 模板总配置。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct TemplateSettings {
+    /// 运行时动态提示模板。
+    pub runtime: RuntimeTemplateSettings,
+}
+
 /// 直接打开相关配置。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -281,6 +313,9 @@ pub struct Settings {
     /// TUI 配置。
     #[serde(default)]
     pub tui: TuiSettings,
+    /// 模板配置。
+    #[serde(default)]
+    pub templates: TemplateSettings,
 }
 
 impl Settings {

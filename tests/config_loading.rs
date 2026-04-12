@@ -140,3 +140,35 @@ fn settings_allow_database_path_override_from_env() {
 
     assert_eq!(settings.database.path.as_std_path(), db_path.as_path());
 }
+
+#[test]
+fn settings_load_runtime_scan_template_overrides() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[database]
+path = "local/melo.db"
+
+[templates.runtime.scan]
+cli_start = "Start {{ source_label }}"
+cli_handoff = "Into TUI"
+tui_active = "{{ indexed_count }} / {{ discovered_count }} · {{ current_item_name }}"
+tui_done = "Done {{ queued_count }}"
+tui_failed = "Failed {{ error_message }}"
+"#,
+    )
+    .unwrap();
+
+    let settings = Settings::load_from_path(&path).unwrap();
+
+    assert_eq!(
+        settings.templates.runtime.scan.cli_start.as_deref(),
+        Some("Start {{ source_label }}")
+    );
+    assert_eq!(
+        settings.templates.runtime.scan.tui_active.as_deref(),
+        Some("{{ indexed_count }} / {{ discovered_count }} · {{ current_item_name }}")
+    );
+}

@@ -1,5 +1,5 @@
 use crate::core::error::MeloResult;
-use crate::core::model::player::PlayerSnapshot;
+use crate::core::model::tui::TuiSnapshot;
 
 /// TUI 远程客户端。
 #[derive(Clone)]
@@ -23,20 +23,32 @@ impl TuiClient {
         } else {
             base_url
         };
-        let ws_url = format!("{}/api/ws/player", ws_base.trim_end_matches('/'));
+        let ws_url = format!("{}/api/ws/tui", ws_base.trim_end_matches('/'));
         Self {
             ws_client: crate::tui::ws_client::WsClient::new(ws_url),
         }
     }
 
-    /// 读取下一条播放器快照。
+    /// 连接到 TUI 聚合快照流。
     ///
     /// # 参数
     /// - 无
     ///
     /// # 返回值
-    /// - `MeloResult<PlayerSnapshot>`：从 daemon 收到的快照
-    pub async fn next_snapshot(&self) -> MeloResult<PlayerSnapshot> {
-        self.ws_client.next_snapshot().await
+    /// - `MeloResult<crate::tui::ws_client::WsSnapshotStream>`：持续快照流
+    pub async fn connect(&self) -> MeloResult<crate::tui::ws_client::WsSnapshotStream> {
+        self.ws_client.connect().await
+    }
+
+    /// 读取下一条 TUI 聚合快照。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<TuiSnapshot>`：从 daemon 收到的聚合快照
+    pub async fn next_snapshot(&self) -> MeloResult<TuiSnapshot> {
+        let mut stream = self.connect().await?;
+        stream.next_json::<TuiSnapshot>().await
     }
 }

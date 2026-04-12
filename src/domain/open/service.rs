@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 use crate::core::config::settings::Settings;
 use crate::core::error::{MeloError, MeloResult};
 use crate::core::model::player::PlayerSnapshot;
+use crate::daemon::tasks::RuntimeTaskStore;
 use crate::domain::library::service::LibraryService;
 use crate::domain::player::service::PlayerService;
 use crate::domain::playlist::service::PlaylistService;
@@ -44,6 +45,7 @@ pub struct OpenService {
     library: LibraryService,
     playlists: PlaylistService,
     player: Arc<PlayerService>,
+    tasks: Arc<RuntimeTaskStore>,
 }
 
 impl OpenService {
@@ -54,6 +56,7 @@ impl OpenService {
     /// - `library`：媒体库服务
     /// - `playlists`：歌单服务
     /// - `player`：播放器服务
+    /// - `tasks`：运行时任务存储
     ///
     /// # 返回值
     /// - `Self`：直接打开服务
@@ -62,12 +65,14 @@ impl OpenService {
         library: LibraryService,
         playlists: PlaylistService,
         player: Arc<PlayerService>,
+        tasks: Arc<RuntimeTaskStore>,
     ) -> Self {
         Self {
             settings,
             library,
             playlists,
             player,
+            tasks,
         }
     }
 
@@ -79,51 +84,10 @@ impl OpenService {
     /// # 返回值
     /// - `MeloResult<OpenResponse>`：打开结果
     pub async fn open(&self, request: OpenRequest) -> MeloResult<OpenResponse> {
-        let target = classify_target(Path::new(&request.target))?;
-        let audio_paths = match target {
-            OpenTarget::AudioFile(path) => vec![path],
-            OpenTarget::Directory(path) => {
-                discover_audio_paths(&path, self.settings.open.max_depth)?
-            }
-        };
-
-        if audio_paths.is_empty() {
-            return Err(MeloError::Message("open_target_empty".to_string()));
+        match classify_target(Path::new(&request.target))? {
+            OpenTarget::AudioFile(path) => self.open_audio_file_target(request, path).await,
+            OpenTarget::Directory(path) => self.open_directory_target(&request, path).await,
         }
-
-        let song_ids = self
-            .library
-            .ensure_scanned_paths(&audio_paths, self.settings.open.prewarm_limit)
-            .await?;
-        let queue_items = self.library.queue_items_for_song_ids(&song_ids).await?;
-        if queue_items.is_empty() {
-            return Err(MeloError::Message("open_target_empty".to_string()));
-        }
-
-        let expires_at = self.expires_at();
-        let playlist = self
-            .playlists
-            .upsert_ephemeral(
-                &request.target,
-                &request.mode,
-                &request.target,
-                self.playlist_visibility(&request.mode),
-                expires_at.as_deref(),
-                &song_ids,
-            )
-            .await?;
-
-        self.player.clear().await?;
-        for item in queue_items {
-            self.player.append(item).await?;
-        }
-        let snapshot = self.player.play().await?;
-
-        Ok(OpenResponse {
-            snapshot,
-            playlist_name: playlist.name,
-            source_label: request.target,
-        })
     }
 
     /// 按触发模式决定临时歌单是否可见。
@@ -160,6 +124,134 @@ impl OpenService {
             .ok()
             .map(|now| now.saturating_add(ttl).to_string())
     }
+
+    /// 处理单文件直接打开。
+    ///
+    /// # 参数
+    /// - `request`：直接打开请求
+    /// - `path`：目标音频文件路径
+    ///
+    /// # 返回值
+    /// - `MeloResult<OpenResponse>`：打开结果
+    async fn open_audio_file_target(
+        &self,
+        request: OpenRequest,
+        path: PathBuf,
+    ) -> MeloResult<OpenResponse> {
+        let song_ids = vec![self.library.ensure_song_id_for_path(&path).await?];
+        let expires_at = self.expires_at();
+        let playlist = self
+            .playlists
+            .upsert_ephemeral(
+                &request.target,
+                &request.mode,
+                &request.target,
+                self.playlist_visibility(&request.mode),
+                expires_at.as_deref(),
+                &song_ids,
+            )
+            .await?;
+
+        self.player.clear().await?;
+        for item in self.library.queue_items_for_song_ids(&song_ids).await? {
+            self.player.append(item).await?;
+        }
+        let snapshot = self.player.play().await?;
+
+        Ok(OpenResponse {
+            snapshot,
+            playlist_name: playlist.name,
+            source_label: request.target,
+        })
+    }
+
+    /// 处理目录直接打开，先做同步预热，再把剩余路径交给后台补扫。
+    ///
+    /// # 参数
+    /// - `request`：直接打开请求
+    /// - `path`：目标目录路径
+    ///
+    /// # 返回值
+    /// - `MeloResult<OpenResponse>`：打开结果
+    async fn open_directory_target(
+        &self,
+        request: &OpenRequest,
+        path: PathBuf,
+    ) -> MeloResult<OpenResponse> {
+        let audio_paths = discover_audio_paths(&path, self.settings.open.max_depth)?;
+        if audio_paths.is_empty() {
+            return Err(MeloError::Message("open_target_empty".to_string()));
+        }
+
+        let task = self
+            .tasks
+            .start_scan(request.target.clone(), audio_paths.len());
+        let split_at = self
+            .settings
+            .open
+            .prewarm_limit
+            .min(audio_paths.len())
+            .max(1);
+        let mut song_ids = Vec::with_capacity(split_at);
+
+        for audio_path in &audio_paths[..split_at] {
+            let current_item_name = audio_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(ToString::to_string);
+            task.mark_prewarming(current_item_name);
+            song_ids.push(self.library.ensure_song_id_for_path(audio_path).await?);
+        }
+
+        let expires_at = self.expires_at();
+        let playlist = self
+            .playlists
+            .upsert_ephemeral(
+                &request.target,
+                &request.mode,
+                &request.target,
+                self.playlist_visibility(&request.mode),
+                expires_at.as_deref(),
+                &song_ids,
+            )
+            .await?;
+
+        self.player.clear().await?;
+        for item in self.library.queue_items_for_song_ids(&song_ids).await? {
+            self.player.append(item).await?;
+        }
+        let snapshot = self.player.play().await?;
+
+        let remaining_paths = audio_paths[split_at..].to_vec();
+        if remaining_paths.is_empty() {
+            task.mark_completed(song_ids.len());
+        } else {
+            crate::domain::open::background_scan::BackgroundScanCoordinator::new(
+                self.settings.clone(),
+                self.library.clone(),
+                self.playlists.clone(),
+                Arc::clone(&self.player),
+            )
+            .spawn(
+                task,
+                crate::domain::open::background_scan::BackgroundScanRequest {
+                    source_name: request.target.clone(),
+                    source_kind: request.mode.clone(),
+                    source_key: request.target.clone(),
+                    visible: self.playlist_visibility(&request.mode),
+                    expires_at,
+                    initial_song_ids: song_ids.clone(),
+                    remaining_paths,
+                },
+            );
+        }
+
+        Ok(OpenResponse {
+            snapshot,
+            playlist_name: playlist.name,
+            source_label: request.target.clone(),
+        })
+    }
 }
 
 /// 将传入路径分类为可打开目标。
@@ -190,14 +282,16 @@ pub fn classify_target(path: &Path) -> MeloResult<OpenTarget> {
 /// # 返回值
 /// - `MeloResult<Vec<PathBuf>>`：发现到的音频路径列表
 pub fn discover_audio_paths(root: &Path, max_depth: usize) -> MeloResult<Vec<PathBuf>> {
-    Ok(walkdir::WalkDir::new(root)
+    let mut paths = walkdir::WalkDir::new(root)
         .max_depth(max_depth.saturating_add(1))
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
         .map(|entry| entry.into_path())
         .filter(|path| crate::domain::open::formats::is_supported_audio_path(path))
-        .collect())
+        .collect::<Vec<_>>();
+    paths.sort();
+    Ok(paths)
 }
 
 #[cfg(test)]

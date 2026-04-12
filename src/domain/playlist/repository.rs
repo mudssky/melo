@@ -43,6 +43,7 @@ pub struct StoredPlaylist {
 }
 
 /// 静态歌单仓储。
+#[derive(Clone)]
 pub struct PlaylistRepository {
     settings: Settings,
 }

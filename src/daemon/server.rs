@@ -103,6 +103,10 @@ pub fn router(state: AppState) -> Router {
             "/api/ws/player",
             axum::routing::get(crate::api::ws::player_updates),
         )
+        .route(
+            "/api/ws/tui",
+            axum::routing::get(crate::api::ws::tui_updates),
+        )
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 

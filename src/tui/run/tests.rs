@@ -23,3 +23,13 @@ fn startup_notice_is_included_in_status_line() {
 
     assert!(app.footer_status().contains("open_scan_failed"));
 }
+
+#[test]
+fn top_task_bar_layout_only_reserves_space_when_needed() {
+    let full = crate::tui::ui::layout::split(ratatui::layout::Rect::new(0, 0, 100, 30), true);
+    let compact = crate::tui::ui::layout::split(ratatui::layout::Rect::new(0, 0, 100, 30), false);
+
+    assert!(full.task_bar.is_some());
+    assert!(compact.task_bar.is_none());
+    assert!(full.content.y > compact.content.y);
+}

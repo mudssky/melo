@@ -20,14 +20,27 @@ pub async fn run() -> MeloResult<()> {
         crate::cli::dispatch::Dispatch::DefaultLaunch => {
             let settings = crate::core::config::settings::Settings::load()?;
             let base_url = crate::daemon::process::ensure_running(&settings).await?;
+            let renderer = crate::core::runtime_templates::RuntimeTemplateRenderer::default();
             let (source_label, startup_notice) = if settings.open.scan_current_dir {
                 let cwd = std::env::current_dir()
                     .map_err(|err| crate::core::error::MeloError::Message(err.to_string()))?;
+                if let Some(line) =
+                    render_scan_cli_lines(&renderer, &settings, &cwd.to_string_lossy()).first()
+                {
+                    println!("{line}");
+                }
                 match crate::cli::client::ApiClient::new(base_url.clone())
                     .open_target(cwd.to_string_lossy().into_owned(), "cwd_dir")
                     .await
                 {
-                    Ok(opened) => (Some(opened.source_label), None),
+                    Ok(opened) => {
+                        if let Some(line) =
+                            render_scan_cli_lines(&renderer, &settings, &opened.source_label).get(1)
+                        {
+                            println!("{line}");
+                        }
+                        (Some(opened.source_label), None)
+                    }
                     Err(err) => (None, Some(err.to_string())),
                 }
             } else {
@@ -47,14 +60,26 @@ pub async fn run() -> MeloResult<()> {
         crate::cli::dispatch::Dispatch::DirectOpen(target) => {
             let settings = crate::core::config::settings::Settings::load()?;
             let base_url = crate::daemon::process::ensure_running(&settings).await?;
+            let renderer = crate::core::runtime_templates::RuntimeTemplateRenderer::default();
             let mode = if std::path::Path::new(&target).is_dir() {
                 "path_dir"
             } else {
                 "path_file"
             };
+            if mode == "path_dir"
+                && let Some(line) = render_scan_cli_lines(&renderer, &settings, &target).first()
+            {
+                println!("{line}");
+            }
             let opened = crate::cli::client::ApiClient::new(base_url.clone())
                 .open_target(target, mode)
                 .await?;
+            if mode == "path_dir"
+                && let Some(line) =
+                    render_scan_cli_lines(&renderer, &settings, &opened.source_label).get(1)
+            {
+                println!("{line}");
+            }
             return crate::tui::run::start(
                 base_url,
                 crate::tui::run::LaunchContext {
@@ -296,6 +321,34 @@ async fn run_clap(args: CliArgs) -> MeloResult<()> {
     Ok(())
 }
 
+/// 生成目录扫描启动阶段要输出给 CLI 的提示行。
+///
+/// # 参数
+/// - `renderer`：运行时模板渲染器
+/// - `settings`：全局配置
+/// - `source_label`：当前扫描来源标签
+///
+/// # 返回值
+/// - `Vec<String>`：按顺序返回启动提示与切入 TUI 提示
+fn render_scan_cli_lines(
+    renderer: &crate::core::runtime_templates::RuntimeTemplateRenderer,
+    settings: &crate::core::config::settings::Settings,
+    source_label: &str,
+) -> Vec<String> {
+    vec![
+        renderer.render(
+            settings,
+            crate::core::runtime_templates::RuntimeTemplateKey::CliScanStart,
+            serde_json::json!({ "source_label": source_label }),
+        ),
+        renderer.render(
+            settings,
+            crate::core::runtime_templates::RuntimeTemplateKey::CliScanHandoff,
+            serde_json::json!({ "source_label": source_label }),
+        ),
+    ]
+}
+
 /// 构造一个基于发现逻辑的 daemon 客户端。
 ///
 /// # 参数
@@ -378,3 +431,6 @@ async fn run_daemon_server() -> MeloResult<()> {
 fn parse_bool_flag(value: &str) -> bool {
     matches!(value, "1" | "true" | "on" | "yes")
 }
+
+#[cfg(test)]
+mod tests;

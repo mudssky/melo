@@ -54,7 +54,7 @@ async fn status_command_prints_progress_fields() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn tui_client_receives_initial_player_snapshot() {
+async fn tui_client_receives_initial_tui_snapshot() {
     let state = melo::daemon::app::AppState::for_test().await;
     state
         .player
@@ -67,6 +67,10 @@ async fn tui_client_receives_initial_player_snapshot() {
         .await
         .unwrap();
     state.player.play().await.unwrap();
+    let handle = state
+        .runtime_tasks()
+        .start_scan("D:/Music/Aimer".to_string(), 3);
+    handle.mark_indexing(1, 1, Some("Blue Bird.flac".to_string()));
     let app = melo::daemon::server::router(state);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -78,8 +82,9 @@ async fn tui_client_receives_initial_player_snapshot() {
     let client = melo::tui::client::TuiClient::new(format!("http://{addr}"));
     let snapshot = client.next_snapshot().await.unwrap();
 
-    assert_eq!(snapshot.playback_state, "playing");
-    assert_eq!(snapshot.current_song.unwrap().title, "Blue Bird");
+    assert_eq!(snapshot.player.playback_state, "playing");
+    assert_eq!(snapshot.player.current_song.unwrap().title, "Blue Bird");
+    assert_eq!(snapshot.active_task.unwrap().indexed_count, 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]

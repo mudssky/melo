@@ -118,6 +118,8 @@ pub struct AppState {
     pub settings: Settings,
     /// 直接打开服务。
     pub open: Arc<crate::domain::open::service::OpenService>,
+    /// 当前活动运行时任务存储。
+    runtime_tasks: Arc<crate::daemon::tasks::RuntimeTaskStore>,
     /// daemon 运行时元数据。
     runtime: Arc<DaemonRuntimeMeta>,
     /// daemon 关闭通知器。
@@ -191,16 +193,19 @@ impl AppState {
         player.start_progress_loop();
         let library = library_factory(settings.clone());
         let playlists = PlaylistService::new(settings.clone());
+        let runtime_tasks = Arc::new(crate::daemon::tasks::RuntimeTaskStore::new());
         let open = Arc::new(crate::domain::open::service::OpenService::new(
             settings.clone(),
             library,
             playlists,
             Arc::clone(&player),
+            Arc::clone(&runtime_tasks),
         ));
         Self {
             player,
             settings,
             open,
+            runtime_tasks,
             runtime: Arc::new(runtime),
             shutdown_notify: Arc::new(Notify::new()),
             shutdown_requested: Arc::new(AtomicBool::new(false)),
@@ -231,16 +236,19 @@ impl AppState {
 
         let library = LibraryService::for_test(settings.clone());
         let playlists = PlaylistService::new(settings.clone());
+        let runtime_tasks = Arc::new(crate::daemon::tasks::RuntimeTaskStore::new());
         let open = Arc::new(crate::domain::open::service::OpenService::new(
             settings.clone(),
             library,
             playlists,
             Arc::clone(&player),
+            Arc::clone(&runtime_tasks),
         ));
         let state = Self {
             player: Arc::clone(&player),
             settings,
             open,
+            runtime_tasks,
             runtime: Arc::new(DaemonRuntimeMeta::for_test(&backend_name)),
             shutdown_notify: Arc::new(Notify::new()),
             shutdown_requested: Arc::new(AtomicBool::new(false)),
@@ -334,6 +342,31 @@ impl AppState {
         request: crate::domain::open::service::OpenRequest,
     ) -> crate::core::error::MeloResult<crate::domain::open::service::OpenResponse> {
         self.open.open(request).await
+    }
+
+    /// 返回共享的运行时任务存储。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `Arc<crate::daemon::tasks::RuntimeTaskStore>`：运行时任务存储
+    pub fn runtime_tasks(&self) -> Arc<crate::daemon::tasks::RuntimeTaskStore> {
+        Arc::clone(&self.runtime_tasks)
+    }
+
+    /// 聚合当前播放器状态和活动运行时任务，供 TUI 等前端一次性消费。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `crate::core::model::tui::TuiSnapshot`：当前 TUI 聚合快照
+    pub async fn tui_snapshot(&self) -> crate::core::model::tui::TuiSnapshot {
+        crate::core::model::tui::TuiSnapshot {
+            player: self.player.snapshot().await,
+            active_task: self.runtime_tasks.current(),
+        }
     }
 
     /// 返回当前 daemon 的系统状态响应。

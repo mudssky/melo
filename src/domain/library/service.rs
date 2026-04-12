@@ -9,6 +9,7 @@ use crate::domain::library::organize::OrganizePreviewRow;
 use crate::domain::library::repository::{ArtworkRefRecord, LibraryRepository, SongRecord};
 
 /// 媒体库服务，负责目录扫描与数据查询。
+#[derive(Clone)]
 pub struct LibraryService {
     settings: Settings,
     reader: Arc<dyn MetadataReader>,
@@ -76,30 +77,7 @@ impl LibraryService {
                     continue;
                 }
 
-                let mut metadata = self.reader.read(path)?;
-                let mut lyrics_source_path = None;
-                if let Some(resolved_lyrics) =
-                    crate::domain::library::assets::resolve_lyrics(path, &metadata)
-                {
-                    metadata.lyrics = Some(resolved_lyrics.text);
-                    metadata.lyrics_source_kind = resolved_lyrics.source_kind;
-                    metadata.lyrics_format = Some(resolved_lyrics.format);
-                    lyrics_source_path = resolved_lyrics.source_path;
-                } else {
-                    metadata.lyrics = None;
-                    metadata.lyrics_source_kind = LyricsSourceKind::None;
-                    metadata.lyrics_format = None;
-                }
-
-                let cover_path = crate::domain::library::assets::find_cover(path);
-                self.repository
-                    .upsert_song(
-                        path,
-                        &metadata,
-                        lyrics_source_path.as_deref(),
-                        cover_path.as_deref(),
-                    )
-                    .await?;
+                self.ensure_song_id_for_path(path).await?;
             }
         }
 
@@ -128,6 +106,40 @@ impl LibraryService {
         }
 
         self.repository.song_ids_by_paths(audio_paths).await
+    }
+
+    /// 确保单个音频路径已经扫描入库，并返回对应歌曲 ID。
+    ///
+    /// # 参数
+    /// - `path`：音频文件路径
+    ///
+    /// # 返回值
+    /// - `MeloResult<i64>`：对应歌曲 ID
+    pub async fn ensure_song_id_for_path(&self, path: &std::path::Path) -> MeloResult<i64> {
+        let mut metadata = self.reader.read(path)?;
+        let mut lyrics_source_path = None;
+        if let Some(resolved_lyrics) =
+            crate::domain::library::assets::resolve_lyrics(path, &metadata)
+        {
+            metadata.lyrics = Some(resolved_lyrics.text);
+            metadata.lyrics_source_kind = resolved_lyrics.source_kind;
+            metadata.lyrics_format = Some(resolved_lyrics.format);
+            lyrics_source_path = resolved_lyrics.source_path;
+        } else {
+            metadata.lyrics = None;
+            metadata.lyrics_source_kind = LyricsSourceKind::None;
+            metadata.lyrics_format = None;
+        }
+
+        let cover_path = crate::domain::library::assets::find_cover(path);
+        self.repository
+            .upsert_song(
+                path,
+                &metadata,
+                lyrics_source_path.as_deref(),
+                cover_path.as_deref(),
+            )
+            .await
     }
 
     /// 按歌曲 ID 顺序构造播放器队列项。
