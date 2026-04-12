@@ -116,10 +116,14 @@ pub struct AppState {
     pub player: Arc<PlayerService>,
     /// 全局配置。
     pub settings: Settings,
+    /// 歌单服务。
+    pub playlists: PlaylistService,
     /// 直接打开服务。
     pub open: Arc<crate::domain::open::service::OpenService>,
     /// 当前活动运行时任务存储。
     runtime_tasks: Arc<crate::daemon::tasks::RuntimeTaskStore>,
+    /// 当前播放来源存储。
+    playback_context: Arc<crate::daemon::playback_context::PlayingPlaylistStore>,
     /// daemon 运行时元数据。
     runtime: Arc<DaemonRuntimeMeta>,
     /// daemon 关闭通知器。
@@ -194,18 +198,22 @@ impl AppState {
         let library = library_factory(settings.clone());
         let playlists = PlaylistService::new(settings.clone());
         let runtime_tasks = Arc::new(crate::daemon::tasks::RuntimeTaskStore::new());
+        let playback_context =
+            Arc::new(crate::daemon::playback_context::PlayingPlaylistStore::default());
         let open = Arc::new(crate::domain::open::service::OpenService::new(
             settings.clone(),
             library,
-            playlists,
+            playlists.clone(),
             Arc::clone(&player),
             Arc::clone(&runtime_tasks),
         ));
         Self {
             player,
             settings,
+            playlists,
             open,
             runtime_tasks,
+            playback_context,
             runtime: Arc::new(runtime),
             shutdown_notify: Arc::new(Notify::new()),
             shutdown_requested: Arc::new(AtomicBool::new(false)),
@@ -237,18 +245,22 @@ impl AppState {
         let library = LibraryService::for_test(settings.clone());
         let playlists = PlaylistService::new(settings.clone());
         let runtime_tasks = Arc::new(crate::daemon::tasks::RuntimeTaskStore::new());
+        let playback_context =
+            Arc::new(crate::daemon::playback_context::PlayingPlaylistStore::default());
         let open = Arc::new(crate::domain::open::service::OpenService::new(
             settings.clone(),
             library,
-            playlists,
+            playlists.clone(),
             Arc::clone(&player),
             Arc::clone(&runtime_tasks),
         ));
         let state = Self {
             player: Arc::clone(&player),
             settings,
+            playlists,
             open,
             runtime_tasks,
+            playback_context,
             runtime: Arc::new(DaemonRuntimeMeta::for_test(&backend_name)),
             shutdown_notify: Arc::new(Notify::new()),
             shutdown_requested: Arc::new(AtomicBool::new(false)),
@@ -265,7 +277,12 @@ impl AppState {
     /// # 返回值
     /// - `Self`：测试用状态
     pub async fn for_test() -> Self {
-        Self::for_test_with_settings(Settings::default()).await
+        let settings = Settings::for_test(
+            std::env::temp_dir()
+                .join("melo-tests")
+                .join(format!("app-state-{}.db", Uuid::new_v4())),
+        );
+        Self::for_test_with_settings(settings).await
     }
 
     /// 构造带指定配置的测试用应用状态。
@@ -276,6 +293,10 @@ impl AppState {
     /// # 返回值
     /// - `Self`：测试用状态
     pub async fn for_test_with_settings(settings: Settings) -> Self {
+        crate::core::db::bootstrap::DatabaseBootstrap::new(&settings)
+            .init()
+            .await
+            .expect("测试态 AppState 初始化数据库失败");
         let backend = Arc::new(NoopBackend);
         Self::with_backend_and_runtime(
             backend,
@@ -355,18 +376,94 @@ impl AppState {
         Arc::clone(&self.runtime_tasks)
     }
 
+    /// 设置当前播放来源。
+    ///
+    /// # 参数
+    /// - `name`：歌单名
+    /// - `kind`：歌单类型
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn set_current_playlist_context(&self, name: &str, kind: &str) {
+        self.playback_context
+            .set(crate::daemon::playback_context::PlayingPlaylistContext {
+                name: name.to_string(),
+                kind: kind.to_string(),
+            });
+    }
+
+    /// 清空当前播放来源。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn clear_current_playlist_context(&self) {
+        self.playback_context.clear();
+    }
+
+    /// 读取当前播放来源。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `Option<crate::daemon::playback_context::PlayingPlaylistContext>`：当前播放来源
+    pub fn current_playlist_context(
+        &self,
+    ) -> Option<crate::daemon::playback_context::PlayingPlaylistContext> {
+        self.playback_context.current()
+    }
+
     /// 聚合当前播放器状态和活动运行时任务，供 TUI 等前端一次性消费。
     ///
     /// # 参数
     /// - 无
     ///
     /// # 返回值
-    /// - `crate::core::model::tui::TuiSnapshot`：当前 TUI 聚合快照
-    pub async fn tui_snapshot(&self) -> crate::core::model::tui::TuiSnapshot {
-        crate::core::model::tui::TuiSnapshot {
-            player: self.player.snapshot().await,
+    /// - `MeloResult<crate::core::model::tui::TuiSnapshot>`：当前 TUI 聚合快照
+    pub async fn tui_snapshot(&self) -> MeloResult<crate::core::model::tui::TuiSnapshot> {
+        let player = self.player.snapshot().await;
+        let current = self.playback_context.current();
+        let mut visible_playlists = self
+            .playlists
+            .list_all()
+            .await?
+            .into_iter()
+            .map(|playlist| crate::core::model::tui::PlaylistListItem {
+                is_current_playing_source: current
+                    .as_ref()
+                    .is_some_and(|context| context.name == playlist.name),
+                is_ephemeral: playlist.kind == "ephemeral",
+                name: playlist.name,
+                kind: playlist.kind,
+                count: playlist.count,
+            })
+            .collect::<Vec<_>>();
+        let current_playing_playlist =
+            current.map(|context| crate::core::model::tui::PlaylistListItem {
+                name: context.name.clone(),
+                kind: context.kind.clone(),
+                count: player.queue_len,
+                is_current_playing_source: true,
+                is_ephemeral: context.kind == "ephemeral",
+            });
+
+        visible_playlists.sort_by(|left, right| left.name.cmp(&right.name));
+
+        Ok(crate::core::model::tui::TuiSnapshot {
+            player,
             active_task: self.runtime_tasks.current(),
-        }
+            playlist_browser: crate::core::model::tui::PlaylistBrowserSnapshot {
+                default_view: crate::core::model::tui::TuiViewKind::Playlist,
+                default_selected_playlist: current_playing_playlist
+                    .as_ref()
+                    .map(|playlist| playlist.name.clone()),
+                current_playing_playlist,
+                visible_playlists,
+            },
+        })
     }
 
     /// 返回当前 daemon 的系统状态响应。

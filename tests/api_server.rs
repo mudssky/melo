@@ -365,6 +365,47 @@ async fn api_tui_websocket_initial_snapshot_includes_active_task() {
     assert_eq!(snapshot.active_task.unwrap().indexed_count, 2);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn api_tui_websocket_initial_snapshot_includes_playlist_browser_defaults() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    state.set_current_playlist_context("C:/Music/Aimer", "ephemeral");
+    let app = melo::daemon::server::router(state);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let (mut stream, _response) = connect_async(format!("ws://{addr}/api/ws/tui"))
+        .await
+        .unwrap();
+    let message = stream.next().await.unwrap().unwrap();
+    let snapshot: melo::core::model::tui::TuiSnapshot =
+        serde_json::from_str(&message.into_text().unwrap()).unwrap();
+
+    assert_eq!(
+        snapshot.playlist_browser.default_view,
+        melo::core::model::tui::TuiViewKind::Playlist
+    );
+    assert_eq!(
+        snapshot
+            .playlist_browser
+            .default_selected_playlist
+            .as_deref(),
+        Some("C:/Music/Aimer")
+    );
+    assert_eq!(
+        snapshot
+            .playlist_browser
+            .current_playing_playlist
+            .as_ref()
+            .unwrap()
+            .kind,
+        "ephemeral"
+    );
+}
+
 #[tokio::test]
 async fn player_volume_endpoint_updates_snapshot_contract() {
     let app = melo::daemon::app::test_router().await;

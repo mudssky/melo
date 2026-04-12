@@ -188,6 +188,7 @@ fn active_task_bar_renders_current_item_name() {
             current_item_name: Some("Ref:rain.flac".into()),
             last_error: None,
         }),
+        playlist_browser: melo::core::model::tui::PlaylistBrowserSnapshot::default(),
     });
 
     let text = app.task_bar_text(
@@ -218,6 +219,7 @@ fn active_task_bar_truncates_long_text_to_available_width() {
             ),
             last_error: None,
         }),
+        playlist_browser: melo::core::model::tui::PlaylistBrowserSnapshot::default(),
     });
 
     let text = app

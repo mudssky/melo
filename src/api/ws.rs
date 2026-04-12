@@ -78,10 +78,10 @@ async fn stream_tui_snapshots(mut socket: WebSocket, state: AppState) {
     let mut player_rx = state.player.subscribe();
     let mut task_rx = state.runtime_tasks().subscribe();
 
-    if send_payload(&mut socket, &state.tui_snapshot().await)
-        .await
-        .is_err()
-    {
+    let Ok(initial_snapshot) = state.tui_snapshot().await else {
+        return;
+    };
+    if send_payload(&mut socket, &initial_snapshot).await.is_err() {
         return;
     }
 
@@ -99,7 +99,9 @@ async fn stream_tui_snapshots(mut socket: WebSocket, state: AppState) {
             }
         }
 
-        let snapshot = state.tui_snapshot().await;
+        let Ok(snapshot) = state.tui_snapshot().await else {
+            break;
+        };
         if send_payload(&mut socket, &snapshot).await.is_err() {
             break;
         }

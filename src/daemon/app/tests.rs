@@ -34,7 +34,7 @@ async fn app_state_tui_snapshot_includes_active_runtime_task() {
         .start_scan("D:/Music/Aimer".to_string(), 4);
     handle.mark_indexing(1, 1, Some("track-01.flac".to_string()));
 
-    let snapshot = state.tui_snapshot().await;
+    let snapshot = state.tui_snapshot().await.unwrap();
 
     assert_eq!(snapshot.player.backend_name, "noop");
     assert_eq!(
