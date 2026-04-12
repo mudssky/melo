@@ -44,7 +44,11 @@ impl Default for Keymap {
         bindings.insert(ActionId::FocusNext, vec![vec![KeyStroke::named("tab")]]);
         bindings.insert(
             ActionId::FocusPrev,
-            vec![vec![KeyStroke::modified("tab", "shift")]],
+            vec![
+                vec![KeyStroke::modified("tab", "shift")],
+                vec![KeyStroke::char('h')],
+                vec![KeyStroke::named("esc")],
+            ],
         );
         bindings.insert(
             ActionId::MoveUp,
@@ -296,7 +300,7 @@ fn parse_stroke(text: &str) -> MeloResult<KeyStroke> {
 /// # 返回值
 /// - `KeyStroke`：归一化后的按键描述
 fn normalize_key_event(event: KeyEvent) -> KeyStroke {
-    let modifiers = if event.modifiers.contains(KeyModifiers::SHIFT) {
+    let mut modifiers = if event.modifiers.contains(KeyModifiers::SHIFT) {
         "shift"
     } else if event.modifiers.contains(KeyModifiers::CONTROL) {
         "ctrl"
@@ -310,6 +314,7 @@ fn normalize_key_event(event: KeyEvent) -> KeyStroke {
         KeyCode::Tab => "tab".to_string(),
         KeyCode::BackTab => "tab".to_string(),
         KeyCode::Enter => "enter".to_string(),
+        KeyCode::Esc => "esc".to_string(),
         KeyCode::Up => "up".to_string(),
         KeyCode::Down => "down".to_string(),
         KeyCode::Home => "home".to_string(),
@@ -317,7 +322,12 @@ fn normalize_key_event(event: KeyEvent) -> KeyStroke {
         KeyCode::PageUp => "pageup".to_string(),
         KeyCode::PageDown => "pagedown".to_string(),
         KeyCode::Char(' ') => "space".to_string(),
-        KeyCode::Char(ch) => ch.to_ascii_lowercase().to_string(),
+        KeyCode::Char(ch) => {
+            if !ch.is_ascii_alphanumeric() {
+                modifiers = "none";
+            }
+            ch.to_ascii_lowercase().to_string()
+        }
         other => format!("{other:?}").to_ascii_lowercase(),
     };
 

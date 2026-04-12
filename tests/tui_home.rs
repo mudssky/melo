@@ -35,3 +35,29 @@ async fn direct_open_updates_tui_home_default_selected_playlist() {
         melo::core::model::tui::TuiViewKind::Playlist
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn active_playback_session_keeps_current_playlist_as_default_selection() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    state.set_current_playlist_context("Favorites", "static");
+    state
+        .player
+        .append(melo::core::model::player::QueueItem {
+            song_id: 1,
+            path: "tests/fixtures/full_test.mp3".into(),
+            title: "Blue Bird".into(),
+            duration_seconds: Some(212.0),
+        })
+        .await
+        .unwrap();
+    state.player.play().await.unwrap();
+
+    let snapshot = state.tui_snapshot().await.unwrap();
+    assert_eq!(
+        snapshot
+            .playlist_browser
+            .default_selected_playlist
+            .as_deref(),
+        Some("Favorites")
+    );
+}

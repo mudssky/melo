@@ -1,5 +1,35 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+fn browser_snapshot() -> crate::core::model::tui::PlaylistBrowserSnapshot {
+    crate::core::model::tui::PlaylistBrowserSnapshot {
+        default_view: crate::core::model::tui::TuiViewKind::Playlist,
+        default_selected_playlist: Some("Favorites".to_string()),
+        current_playing_playlist: Some(crate::core::model::tui::PlaylistListItem {
+            name: "Favorites".to_string(),
+            kind: "static".to_string(),
+            count: 2,
+            is_current_playing_source: true,
+            is_ephemeral: false,
+        }),
+        visible_playlists: vec![
+            crate::core::model::tui::PlaylistListItem {
+                name: "Favorites".to_string(),
+                kind: "static".to_string(),
+                count: 2,
+                is_current_playing_source: true,
+                is_ephemeral: false,
+            },
+            crate::core::model::tui::PlaylistListItem {
+                name: "Aimer".to_string(),
+                kind: "smart".to_string(),
+                count: 4,
+                is_current_playing_source: false,
+                is_ephemeral: false,
+            },
+        ],
+    }
+}
+
 #[test]
 fn app_source_label_is_rendered_in_status_line() {
     let mut app = crate::tui::app::App::new_for_test();
@@ -39,4 +69,30 @@ fn repeat_mode_cycles_off_all_one_off() {
     assert_eq!(crate::tui::run::next_repeat_mode("off"), "all");
     assert_eq!(crate::tui::run::next_repeat_mode("all"), "one");
     assert_eq!(crate::tui::run::next_repeat_mode("one"), "off");
+}
+
+#[test]
+fn hit_test_mouse_target_maps_sidebar_row_to_playlist_item() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.apply_tui_snapshot(crate::core::model::tui::TuiSnapshot {
+        player: crate::core::model::player::PlayerSnapshot::default(),
+        active_task: None,
+        playlist_browser: browser_snapshot(),
+    });
+    let layout = crate::tui::ui::layout::split(ratatui::layout::Rect::new(0, 0, 100, 30), false);
+
+    let target =
+        super::hit_test_mouse_target(layout, &app, layout.sidebar.x + 1, layout.sidebar.y + 2);
+
+    assert_eq!(target, crate::tui::mouse::MouseTarget::PlaylistRow(0));
+}
+
+#[test]
+fn status_lines_include_launch_cwd_context() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.set_launch_cwd("D:/Music/Aimer");
+
+    let lines = crate::tui::ui::playlist::render_status_lines(&app);
+
+    assert!(lines.iter().any(|line| line.contains("D:/Music/Aimer")));
 }

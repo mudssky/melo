@@ -111,46 +111,55 @@ pub async fn run_prepared(prepared: crate::cli::global_flags::PreparedArgs) -> M
                 crate::core::logging::LogComponent::Cli,
                 &prepared.logging,
             );
-            let _mirror = if prepared.logging.verbose {
-                Some(crate::core::logging::attach_daemon_log_mirror(
-                    crate::core::logging::daemon_log_path(&settings),
-                    resolved_cli.prefix_enabled,
-                    settings.logging.daemon_prefix.clone(),
-                ))
-            } else {
-                None
-            };
-            tracing::info!(target: "melo::cli::startup", target = %target, "opening_explicit_target");
-            let ensured =
-                crate::daemon::manager::ensure_running_with_logging(&settings, &prepared.logging)
-                    .await?;
-            report_daemon_override_notice(&settings, &prepared.logging, ensured.already_running);
-            let base_url = ensured.base_url;
             let renderer = crate::core::runtime_templates::RuntimeTemplateRenderer::default();
-            let mode = if std::path::Path::new(&target).is_dir() {
-                "path_dir"
-            } else {
-                "path_file"
-            };
-            if mode == "path_dir"
-                && let Some(line) = render_scan_cli_lines(&renderer, &settings, &target).first()
-            {
-                println!("{line}");
-            }
-            let opened = crate::cli::client::ApiClient::new(base_url.clone())
-                .open_target(target, mode)
+            let (base_url, source_label) = {
+                let _mirror = if prepared.logging.verbose {
+                    Some(crate::core::logging::attach_daemon_log_mirror(
+                        crate::core::logging::daemon_log_path(&settings),
+                        resolved_cli.prefix_enabled,
+                        settings.logging.daemon_prefix.clone(),
+                    ))
+                } else {
+                    None
+                };
+                tracing::info!(target: "melo::cli::startup", target = %target, "opening_explicit_target");
+                let ensured = crate::daemon::manager::ensure_running_with_logging(
+                    &settings,
+                    &prepared.logging,
+                )
                 .await?;
-            if mode == "path_dir"
-                && let Some(line) =
-                    render_scan_cli_lines(&renderer, &settings, &opened.source_label).get(1)
-            {
-                println!("{line}");
-            }
+                report_daemon_override_notice(
+                    &settings,
+                    &prepared.logging,
+                    ensured.already_running,
+                );
+                let base_url = ensured.base_url;
+                let mode = if std::path::Path::new(&target).is_dir() {
+                    "path_dir"
+                } else {
+                    "path_file"
+                };
+                if mode == "path_dir"
+                    && let Some(line) = render_scan_cli_lines(&renderer, &settings, &target).first()
+                {
+                    println!("{line}");
+                }
+                let opened = crate::cli::client::ApiClient::new(base_url.clone())
+                    .open_target(target, mode)
+                    .await?;
+                if mode == "path_dir"
+                    && let Some(line) =
+                        render_scan_cli_lines(&renderer, &settings, &opened.source_label).get(1)
+                {
+                    println!("{line}");
+                }
+                (base_url, opened.source_label)
+            };
             return crate::tui::run::start(
                 base_url,
                 crate::tui::run::LaunchContext {
                     launch_cwd: None,
-                    source_label: Some(opened.source_label),
+                    source_label: Some(source_label),
                     startup_notice: None,
                     footer_hints_enabled: settings.tui.show_footer_hints,
                 },
@@ -431,7 +440,7 @@ fn render_scan_cli_lines(
 ///
 /// # 返回值
 /// - `String`：可传给 TUI 与测试断言的目录文本
-pub(crate) fn launch_cwd_text(path: &std::path::Path) -> String {
+pub fn launch_cwd_text(path: &std::path::Path) -> String {
     path.to_string_lossy().into_owned()
 }
 

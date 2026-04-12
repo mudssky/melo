@@ -92,7 +92,7 @@ mouse_enabled = true
 [tui.keymap]
 # 焦点切换。
 focus_next = ["tab", "l"]
-focus_prev = ["shift+tab", "h"]
+focus_prev = ["shift+tab", "h", "esc"]
 # 列表导航。
 move_up = ["up", "k"]
 move_down = ["down", "j"]

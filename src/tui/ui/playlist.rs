@@ -91,7 +91,8 @@ pub fn render_playlist_widget(
     let list = ratatui::widgets::List::new(items).block(
         ratatui::widgets::Block::bordered()
             .title("播放列表")
-            .border_style(border_style),
+            .border_style(border_style)
+            .padding(ratatui::widgets::Padding::new(0, 0, 1, 0)),
     );
 
     frame.render_stateful_widget(list, area, &mut app.playlist_state);
@@ -105,7 +106,7 @@ pub fn render_playlist_widget(
 /// # 返回值
 /// - `Vec<String>`：状态文本行
 pub fn render_status_lines(app: &crate::tui::app::App) -> Vec<String> {
-    vec![
+    let mut lines = vec![
         format!(
             "当前播放列表：{}",
             app.playlist_browser
@@ -116,7 +117,13 @@ pub fn render_status_lines(app: &crate::tui::app::App) -> Vec<String> {
         ),
         format!("repeat={}", app.player.repeat_mode),
         format!("shuffle={}", app.player.shuffle_enabled),
-    ]
+    ];
+
+    if let Some(launch_cwd) = &app.launch_cwd {
+        lines.push(format!("当前运行目录：{launch_cwd}"));
+    }
+
+    lines
 }
 
 /// 渲染歌单预览区域的文本行。

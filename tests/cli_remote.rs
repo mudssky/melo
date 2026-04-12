@@ -688,3 +688,9 @@ async fn daemon_status_without_registration_returns_not_running_summary() {
         .success()
         .stdout(predicate::str::contains("NotRunning"));
 }
+
+#[test]
+fn verbose_default_launch_stops_terminal_log_mirror_before_tui_scope() {
+    let text = melo::cli::run::launch_cwd_text(std::path::Path::new("D:/Music/Aimer"));
+    assert_eq!(text, "D:/Music/Aimer");
+}

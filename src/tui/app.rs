@@ -161,7 +161,11 @@ impl App {
                 None
             }
             crate::tui::event::ActionId::FocusPrev => {
-                self.focus = FocusArea::PlaylistList;
+                if self.show_help {
+                    self.show_help = false;
+                } else {
+                    self.focus = FocusArea::PlaylistList;
+                }
                 None
             }
             crate::tui::event::ActionId::Activate => match self.focus {
