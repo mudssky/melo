@@ -46,6 +46,7 @@ pub struct OpenService {
     playlists: PlaylistService,
     player: Arc<PlayerService>,
     tasks: Arc<RuntimeTaskStore>,
+    playback_context: Arc<crate::daemon::playback_context::PlayingPlaylistStore>,
 }
 
 impl OpenService {
@@ -57,6 +58,7 @@ impl OpenService {
     /// - `playlists`：歌单服务
     /// - `player`：播放器服务
     /// - `tasks`：运行时任务存储
+    /// - `playback_context`：当前播放来源存储
     ///
     /// # 返回值
     /// - `Self`：直接打开服务
@@ -66,6 +68,7 @@ impl OpenService {
         playlists: PlaylistService,
         player: Arc<PlayerService>,
         tasks: Arc<RuntimeTaskStore>,
+        playback_context: Arc<crate::daemon::playback_context::PlayingPlaylistStore>,
     ) -> Self {
         Self {
             settings,
@@ -73,6 +76,7 @@ impl OpenService {
             playlists,
             player,
             tasks,
+            playback_context,
         }
     }
 
@@ -152,11 +156,13 @@ impl OpenService {
             )
             .await?;
 
-        self.player.clear().await?;
-        for item in self.library.queue_items_for_song_ids(&song_ids).await? {
-            self.player.append(item).await?;
-        }
-        let snapshot = self.player.play().await?;
+        let queue_items = self.library.queue_items_for_song_ids(&song_ids).await?;
+        let snapshot = self.player.replace_queue(queue_items, 0).await?;
+        self.playback_context
+            .set(crate::daemon::playback_context::PlayingPlaylistContext {
+                name: playlist.name.clone(),
+                kind: playlist.kind.clone(),
+            });
 
         Ok(OpenResponse {
             snapshot,
@@ -216,11 +222,13 @@ impl OpenService {
             )
             .await?;
 
-        self.player.clear().await?;
-        for item in self.library.queue_items_for_song_ids(&song_ids).await? {
-            self.player.append(item).await?;
-        }
-        let snapshot = self.player.play().await?;
+        let queue_items = self.library.queue_items_for_song_ids(&song_ids).await?;
+        let snapshot = self.player.replace_queue(queue_items, 0).await?;
+        self.playback_context
+            .set(crate::daemon::playback_context::PlayingPlaylistContext {
+                name: playlist.name.clone(),
+                kind: playlist.kind.clone(),
+            });
 
         let remaining_paths = audio_paths[split_at..].to_vec();
         if remaining_paths.is_empty() {

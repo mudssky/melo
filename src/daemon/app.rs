@@ -206,6 +206,7 @@ impl AppState {
             playlists.clone(),
             Arc::clone(&player),
             Arc::clone(&runtime_tasks),
+            Arc::clone(&playback_context),
         ));
         Self {
             player,
@@ -253,6 +254,7 @@ impl AppState {
             playlists.clone(),
             Arc::clone(&player),
             Arc::clone(&runtime_tasks),
+            Arc::clone(&playback_context),
         ));
         let state = Self {
             player: Arc::clone(&player),

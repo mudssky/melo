@@ -1,5 +1,6 @@
 use crate::core::config::settings::Settings;
 use crate::core::error::MeloResult;
+use crate::core::model::player::QueueItem;
 use crate::domain::library::repository::{LibraryRepository, SongRecord};
 use crate::domain::playlist::query::SmartQuery;
 use crate::domain::playlist::repository::{PlaylistRepository, StoredPlaylist};
@@ -191,5 +192,36 @@ impl PlaylistService {
         }
 
         self.repository.preview_static(name).await
+    }
+
+    /// 将歌单内容转换成播放器队列项。
+    ///
+    /// # 参数
+    /// - `name`：歌单名
+    ///
+    /// # 返回
+    /// - `MeloResult<Vec<QueueItem>>`：播放器队列项列表
+    pub async fn queue_items(&self, name: &str) -> MeloResult<Vec<QueueItem>> {
+        let settings = self.current_settings()?;
+        let song_ids = if let Some(definition) = settings.playlists.smart.get(name) {
+            let query = SmartQuery::parse(&definition.query)?;
+            self.library_repository
+                .list_by_query(&query)
+                .await?
+                .into_iter()
+                .map(|song| song.id)
+                .collect::<Vec<_>>()
+        } else {
+            self.repository
+                .preview_static(name)
+                .await?
+                .into_iter()
+                .map(|song| song.id)
+                .collect::<Vec<_>>()
+        };
+
+        self.library_repository
+            .queue_items_by_song_ids(&song_ids)
+            .await
     }
 }

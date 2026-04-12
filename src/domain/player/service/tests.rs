@@ -160,6 +160,26 @@ async fn play_on_empty_queue_records_queue_empty_error() {
 }
 
 #[tokio::test]
+async fn replace_queue_sets_selected_index_and_preserves_repeat_and_shuffle() {
+    let backend = Arc::new(FakeBackend::default());
+    let service = PlayerService::new(backend);
+
+    service.set_repeat_mode(RepeatMode::All).await.unwrap();
+    service.set_shuffle_enabled(true).await.unwrap();
+    service
+        .replace_queue(vec![item(1, "One"), item(2, "Two"), item(3, "Three")], 1)
+        .await
+        .unwrap();
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(snapshot.queue_len, 3);
+    assert_eq!(snapshot.queue_index, Some(1));
+    assert_eq!(snapshot.current_song.unwrap().title, "Two");
+    assert_eq!(snapshot.repeat_mode, "all");
+    assert!(snapshot.shuffle_enabled);
+}
+
+#[tokio::test]
 async fn toggle_from_paused_resumes_current_track() {
     let backend = Arc::new(FakeBackend::default());
     let service = PlayerService::new(backend.clone());

@@ -50,6 +50,50 @@ impl MetadataReader for SlowReader {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn directory_open_sets_current_playlist_context_after_prewarm() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("01-first.flac"), b"audio").unwrap();
+
+    let mut settings = Settings::for_test(temp.path().join("melo.db"));
+    settings.open.max_depth = 1;
+    settings.open.prewarm_limit = 1;
+    DatabaseBootstrap::new(&settings).init().await.unwrap();
+
+    let player = Arc::new(PlayerService::new(Arc::new(NoopBackend)));
+    player.start_runtime_event_loop();
+    player.start_progress_loop();
+    let library = LibraryService::new(
+        settings.clone(),
+        Arc::new(SlowReader {
+            delays: HashMap::new(),
+        }),
+    );
+    let playlists = PlaylistService::new(settings.clone());
+    let tasks = Arc::new(RuntimeTaskStore::new());
+    let playback_context =
+        Arc::new(melo::daemon::playback_context::PlayingPlaylistStore::default());
+    let open = OpenService::new(
+        settings.clone(),
+        library,
+        playlists,
+        Arc::clone(&player),
+        Arc::clone(&tasks),
+        Arc::clone(&playback_context),
+    );
+
+    open.open(OpenRequest {
+        target: temp.path().to_string_lossy().to_string(),
+        mode: "path_dir".to_string(),
+    })
+    .await
+    .unwrap();
+
+    let current = playback_context.current().unwrap();
+    assert_eq!(current.kind, "ephemeral");
+    assert_eq!(current.name, temp.path().to_string_lossy());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn directory_open_returns_after_prewarm_and_background_scan_finishes_later() {
     let temp = tempfile::tempdir().unwrap();
     std::fs::write(temp.path().join("01-first.flac"), b"audio").unwrap();
@@ -76,12 +120,15 @@ async fn directory_open_returns_after_prewarm_and_background_scan_finishes_later
     );
     let playlists = PlaylistService::new(settings.clone());
     let tasks = Arc::new(RuntimeTaskStore::new());
+    let playback_context =
+        Arc::new(melo::daemon::playback_context::PlayingPlaylistStore::default());
     let open = OpenService::new(
         settings.clone(),
         library,
         playlists,
         Arc::clone(&player),
         Arc::clone(&tasks),
+        Arc::clone(&playback_context),
     );
 
     let started = Instant::now();
@@ -142,12 +189,15 @@ async fn background_scan_appends_remaining_tracks_in_discovery_order() {
     );
     let playlists = PlaylistService::new(settings.clone());
     let tasks = Arc::new(RuntimeTaskStore::new());
+    let playback_context =
+        Arc::new(melo::daemon::playback_context::PlayingPlaylistStore::default());
     let open = OpenService::new(
         settings.clone(),
         library,
         playlists,
         Arc::clone(&player),
         Arc::clone(&tasks),
+        Arc::clone(&playback_context),
     );
 
     open.open(OpenRequest {

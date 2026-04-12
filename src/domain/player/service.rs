@@ -202,6 +202,35 @@ impl PlayerService {
         self.append(item).await.map(|_| ())
     }
 
+    /// 一次性替换整个播放队列，并从指定索引开始播放。
+    ///
+    /// # 参数
+    /// - `items`：新的完整队列项列表
+    /// - `start_index`：开始播放的索引
+    ///
+    /// # 返回值
+    /// - `MeloResult<PlayerSnapshot>`：最新快照
+    pub async fn replace_queue(
+        &self,
+        items: Vec<QueueItem>,
+        start_index: usize,
+    ) -> MeloResult<PlayerSnapshot> {
+        if items.is_empty() {
+            return Err(MeloError::Message("queue is empty".to_string()));
+        }
+        if start_index >= items.len() {
+            return Err(MeloError::Message("queue index out of range".to_string()));
+        }
+
+        let mut session = self.session.lock().await;
+        session.queue = PlayerQueue::from_items(items, Some(start_index));
+        session.playback_state = PlaybackState::Stopped;
+        session.last_error = None;
+        session.position_seconds = Some(0.0);
+        drop(session);
+        self.play().await
+    }
+
     /// 启动播放；若当前未选中条目，则默认从队首开始。
     ///
     /// # 参数
