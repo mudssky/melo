@@ -153,6 +153,50 @@ describe('link dev helper', () => {
     )
   })
 
+  it('executes npm_execpath directly when it points to a Windows executable', () => {
+    const spawnSyncImpl = vi
+      .fn()
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: 'C:/Users/dev/AppData/Local/pnpm\r\n',
+        stderr: '',
+      })
+      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' })
+
+    const exitCode = linkDev.run({
+      cwd: 'D:/coding/Projects/rust/melo',
+      env: {
+        PNPM_HOME: 'C:/Users/dev/AppData/Local/pnpm',
+        Path: 'C:/Windows/System32',
+        npm_execpath: 'C:/Users/dev/AppData/Local/pnpm/pnpm.exe',
+      },
+      homeDir: 'C:/Users/dev',
+      nodeExecPath: 'C:/Program Files/nodejs/node.exe',
+      platform: 'win32',
+      spawnSyncImpl,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(spawnSyncImpl).toHaveBeenNthCalledWith(
+      1,
+      'C:/Users/dev/AppData/Local/pnpm/pnpm.exe',
+      ['config', 'get', 'global-bin-dir'],
+      expect.objectContaining({
+        cwd: 'D:/coding/Projects/rust/melo',
+        encoding: 'utf8',
+      }),
+    )
+    expect(spawnSyncImpl).toHaveBeenNthCalledWith(
+      2,
+      'C:/Users/dev/AppData/Local/pnpm/pnpm.exe',
+      ['link', '--global'],
+      expect.objectContaining({
+        cwd: 'D:/coding/Projects/rust/melo',
+        encoding: 'utf8',
+      }),
+    )
+  })
+
   it('adds pnpm home to both PATH spellings before linking', () => {
     const spawnSyncImpl = vi
       .fn()

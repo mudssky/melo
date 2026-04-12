@@ -29,6 +29,17 @@ function resolvePnpmHome(
 }
 
 /**
+ * 判断给定入口是否需要通过 Node 执行。
+ *
+ * @param {string} execPath pnpm 入口文件路径
+ * @returns {boolean} `true` 表示这是应交给 Node 运行的脚本入口
+ */
+function shouldRunPnpmViaNode(execPath) {
+  const extension = path.extname(execPath).toLowerCase()
+  return extension === '.js' || extension === '.cjs' || extension === '.mjs'
+}
+
+/**
  * 解析 pnpm 调用入口。
  *
  * @param {NodeJS.ProcessEnv} [env=process.env] 当前环境变量
@@ -40,9 +51,16 @@ function resolvePnpmCommand(
   nodeExecPath = process.execPath,
 ) {
   if (env.npm_execpath) {
+    if (shouldRunPnpmViaNode(env.npm_execpath)) {
+      return {
+        command: nodeExecPath,
+        prefixArgs: [env.npm_execpath],
+      }
+    }
+
     return {
-      command: nodeExecPath,
-      prefixArgs: [env.npm_execpath],
+      command: env.npm_execpath,
+      prefixArgs: [],
     }
   }
 
@@ -174,4 +192,5 @@ module.exports = {
   resolvePnpmHome,
   run,
   runPnpm,
+  shouldRunPnpmViaNode,
 }
