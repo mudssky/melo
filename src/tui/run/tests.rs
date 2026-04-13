@@ -72,6 +72,15 @@ fn repeat_mode_cycles_off_all_one_off() {
 }
 
 #[test]
+fn should_stop_on_tui_exit_for_active_sessions_only() {
+    assert!(crate::tui::run::should_stop_on_tui_exit("playing"));
+    assert!(crate::tui::run::should_stop_on_tui_exit("paused"));
+    assert!(crate::tui::run::should_stop_on_tui_exit("error"));
+    assert!(!crate::tui::run::should_stop_on_tui_exit("stopped"));
+    assert!(!crate::tui::run::should_stop_on_tui_exit("idle"));
+}
+
+#[test]
 fn hit_test_mouse_target_maps_sidebar_row_to_playlist_item() {
     let mut app = crate::tui::app::App::new_for_test();
     app.apply_tui_snapshot(crate::core::model::tui::TuiSnapshot {

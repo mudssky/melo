@@ -690,7 +690,7 @@ async fn daemon_status_without_registration_returns_not_running_summary() {
 }
 
 #[test]
-fn verbose_default_launch_stops_terminal_log_mirror_before_tui_scope() {
+fn launch_cwd_text_is_public_for_quit_boundary_regressions() {
     let text = melo::cli::run::launch_cwd_text(std::path::Path::new("D:/Music/Aimer"));
     assert_eq!(text, "D:/Music/Aimer");
 }

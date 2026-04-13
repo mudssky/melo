@@ -40,6 +40,35 @@ pub(crate) fn next_repeat_mode(current: &str) -> &'static str {
     }
 }
 
+/// 判断当前播放状态在退出 TUI 前是否需要显式停播。
+///
+/// # 参数
+/// - `playback_state`：当前播放器状态文本
+///
+/// # 返回值
+/// - `bool`：`true` 表示退出前需要请求 `/api/player/stop`
+pub(crate) fn should_stop_on_tui_exit(playback_state: &str) -> bool {
+    matches!(playback_state, "playing" | "paused" | "error")
+}
+
+/// 在退出 TUI 前，根据当前状态决定是否显式停播。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+/// - `api_client`：daemon API 客户端
+///
+/// # 返回值
+/// - `MeloResult<()>`：执行结果
+async fn stop_playback_before_exit(
+    app: &mut crate::tui::app::App,
+    api_client: &crate::cli::client::ApiClient,
+) -> MeloResult<()> {
+    if should_stop_on_tui_exit(&app.player.playback_state) {
+        app.apply_snapshot(api_client.post_json("/api/player/stop").await?);
+    }
+    Ok(())
+}
+
 /// 启动真实的 TUI 运行循环。
 ///
 /// # 参数
@@ -336,6 +365,7 @@ async fn handle_key_action(
                 app.show_help = false;
                 Ok(false)
             } else {
+                stop_playback_before_exit(app, api_client).await?;
                 Ok(true)
             }
         }
