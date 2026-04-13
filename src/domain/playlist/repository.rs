@@ -1,7 +1,7 @@
 use sea_orm::ActiveValue::Set;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, IntoActiveModel,
-    PaginatorTrait, QueryFilter, Statement,
+    PaginatorTrait, QueryFilter, Statement, TransactionTrait,
 };
 
 use crate::core::config::settings::Settings;
@@ -221,13 +221,18 @@ impl PlaylistRepository {
         song_ids: &[i64],
     ) -> MeloResult<StoredPlaylist> {
         let connection = connect(&self.settings).await?;
+        // 后台补扫会频繁刷新临时歌单；这里必须保证读侧看不到“先删后重建”的半更新状态。
+        let txn = connection
+            .begin()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?;
         let now = crate::core::db::now_text();
 
         let existing = playlists::Entity::find()
             .filter(playlists::Column::Kind.eq("ephemeral"))
             .filter(playlists::Column::SourceKind.eq(source_kind))
             .filter(playlists::Column::SourceKey.eq(source_key))
-            .one(&connection)
+            .one(&txn)
             .await
             .map_err(|err| MeloError::Message(err.to_string()))?;
 
@@ -241,13 +246,13 @@ impl PlaylistRepository {
             model.last_activated_at = Set(Some(now.clone()));
             model.updated_at = Set(now.clone());
             model
-                .update(&connection)
+                .update(&txn)
                 .await
                 .map_err(|err| MeloError::Message(err.to_string()))?;
 
             playlist_entries::Entity::delete_many()
                 .filter(playlist_entries::Column::PlaylistId.eq(playlist_id))
-                .exec(&connection)
+                .exec(&txn)
                 .await
                 .map_err(|err| MeloError::Message(err.to_string()))?;
 
@@ -266,7 +271,7 @@ impl PlaylistRepository {
                 updated_at: Set(now.clone()),
                 ..Default::default()
             }
-            .insert(&connection)
+            .insert(&txn)
             .await
             .map_err(|err| MeloError::Message(err.to_string()))?
             .id
@@ -280,10 +285,14 @@ impl PlaylistRepository {
                 added_at: Set(now.clone()),
                 ..Default::default()
             }
-            .insert(&connection)
+            .insert(&txn)
             .await
             .map_err(|err| MeloError::Message(err.to_string()))?;
         }
+
+        txn.commit()
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?;
 
         Ok(StoredPlaylist {
             id: playlist_id,
