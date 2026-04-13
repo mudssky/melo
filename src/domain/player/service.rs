@@ -1,19 +1,30 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc, Mutex as StdMutex,
+    atomic::{AtomicBool, Ordering},
+};
 
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{Mutex, mpsc, watch};
 
 use crate::core::error::{MeloError, MeloResult};
 use crate::core::model::player::{
     NowPlayingSong, PlaybackState, PlayerErrorInfo, PlayerSnapshot, QueueItem, RepeatMode,
 };
-use crate::domain::player::backend::PlaybackBackend;
+use crate::domain::player::backend::{
+    PlaybackBackend, PlaybackSessionHandle, PlaybackStartRequest,
+};
 use crate::domain::player::navigation::PlaybackNavigation;
 use crate::domain::player::queue::PlayerQueue;
-use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackStopReason};
+use crate::domain::player::runtime::{
+    PlaybackRuntimeEvent, PlaybackRuntimeReceiver, PlaybackStopReason,
+};
 use crate::domain::player::session_store::PersistedPlayerSession;
 
+/// 当前激活的单次播放会话。
+struct ActivePlaybackSession {
+    handle: Box<dyn PlaybackSessionHandle>,
+}
+
 /// 播放器内部会话状态，是唯一可写的播放器真相来源。
-#[derive(Debug)]
 struct PlayerSession {
     playback_state: PlaybackState,
     queue: PlayerQueue,
@@ -26,6 +37,8 @@ struct PlayerSession {
     repeat_mode: RepeatMode,
     shuffle_enabled: bool,
     shuffle_seed: u64,
+    active_session: Option<ActivePlaybackSession>,
+    backend_notice: Option<String>,
 }
 
 impl Default for PlayerSession {
@@ -49,6 +62,8 @@ impl Default for PlayerSession {
             repeat_mode: RepeatMode::Off,
             shuffle_enabled: false,
             shuffle_seed: 0,
+            active_session: None,
+            backend_notice: None,
         }
     }
 }
@@ -59,6 +74,9 @@ pub struct PlayerService {
     backend_name: &'static str,
     session: Mutex<PlayerSession>,
     snapshot_tx: watch::Sender<PlayerSnapshot>,
+    runtime_binding_tx: mpsc::UnboundedSender<Option<PlaybackRuntimeReceiver>>,
+    runtime_binding_rx: StdMutex<Option<mpsc::UnboundedReceiver<Option<PlaybackRuntimeReceiver>>>>,
+    runtime_events_started: AtomicBool,
 }
 
 impl PlayerService {
@@ -70,15 +88,37 @@ impl PlayerService {
     /// # 返回值
     /// - `Self`：播放服务
     pub fn new(backend: Arc<dyn PlaybackBackend>) -> Self {
-        let session = PlayerSession::default();
+        Self::new_with_notice(backend, None)
+    }
+
+    /// 创建带后端提示信息的播放服务。
+    ///
+    /// # 参数
+    /// - `backend`：播放后端
+    /// - `backend_notice`：需要对外暴露的后端提示信息
+    ///
+    /// # 返回值
+    /// - `Self`：播放服务
+    pub fn new_with_notice(
+        backend: Arc<dyn PlaybackBackend>,
+        backend_notice: Option<String>,
+    ) -> Self {
+        let session = PlayerSession {
+            backend_notice,
+            ..PlayerSession::default()
+        };
         let backend_name = backend.backend_name();
         let (snapshot_tx, _snapshot_rx) =
             watch::channel(Self::snapshot_from_session(&session, backend_name));
+        let (runtime_binding_tx, runtime_binding_rx) = mpsc::unbounded_channel();
         Self {
             backend,
             backend_name,
             session: Mutex::new(session),
             snapshot_tx,
+            runtime_binding_tx,
+            runtime_binding_rx: StdMutex::new(Some(runtime_binding_rx)),
+            runtime_events_started: AtomicBool::new(false),
         }
     }
 
@@ -101,12 +141,46 @@ impl PlayerService {
     /// # 返回值
     /// - 无
     pub fn start_runtime_event_loop(self: &Arc<Self>) {
-        let mut receiver = self.backend.subscribe_runtime_events();
+        if self.runtime_events_started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        let Some(mut binding_rx) = self.runtime_binding_rx.lock().unwrap().take() else {
+            return;
+        };
         let service = Arc::clone(self);
         tokio::spawn(async move {
-            while let Ok(event) = receiver.recv().await {
-                service.handle_runtime_event(event).await;
+            let mut active_listener: Option<tokio::task::JoinHandle<()>> = None;
+            while let Some(binding) = binding_rx.recv().await {
+                if let Some(task) = active_listener.take() {
+                    task.abort();
+                }
+
+                if let Some(mut runtime_rx) = binding {
+                    let listener_service = Arc::clone(&service);
+                    active_listener = Some(tokio::spawn(async move {
+                        while let Ok(event) = runtime_rx.recv().await {
+                            listener_service.handle_runtime_event(event).await;
+                        }
+                    }));
+                }
             }
+
+            if let Some(task) = active_listener.take() {
+                task.abort();
+            }
+        });
+
+        let service = Arc::clone(self);
+        tokio::spawn(async move {
+            let receiver = {
+                let session = service.session.lock().await;
+                session
+                    .active_session
+                    .as_ref()
+                    .map(|active| active.handle.subscribe_runtime_events())
+            };
+            service.bind_runtime_receiver(receiver);
         });
     }
 
@@ -269,18 +343,39 @@ impl PlayerService {
         }
 
         let generation = session.playback_generation + 1;
-        if let Err(err) = self.backend.load_and_play(current_path, generation) {
-            return self.fail_locked(&mut session, "backend_unavailable", &err.to_string(), err);
-        }
-        if let Err(err) = self.backend.set_volume(Self::volume_factor(&session)) {
-            return self.fail_locked(&mut session, "backend_unavailable", &err.to_string(), err);
+        let previous_active = session.active_session.take();
+        let removed_active = previous_active.is_some();
+        if let Some(active) = previous_active {
+            let _ = active.handle.stop();
         }
 
+        let handle = match self.backend.start_session(PlaybackStartRequest {
+            path: current_path.to_path_buf(),
+            generation,
+            volume_factor: Self::volume_factor(&session),
+        }) {
+            Ok(handle) => handle,
+            Err(err) => {
+                let result =
+                    self.fail_locked(&mut session, "backend_unavailable", &err.to_string(), err);
+                drop(session);
+                if removed_active {
+                    self.bind_runtime_receiver(None);
+                }
+                return result;
+            }
+        };
+
+        let runtime_receiver = Some(handle.subscribe_runtime_events());
+        session.active_session = Some(ActivePlaybackSession { handle });
         session.playback_generation = generation;
         session.playback_state = PlaybackState::Playing;
         session.last_error = None;
         session.position_seconds = Some(0.0);
-        self.publish_locked(&mut session)
+        let snapshot = self.publish_locked(&mut session)?;
+        drop(session);
+        self.bind_runtime_receiver(runtime_receiver);
+        Ok(snapshot)
     }
 
     /// 暂停当前播放。
@@ -296,9 +391,11 @@ impl PlayerService {
             return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
-        self.backend.pause()?;
-        if let Some(position) = self.backend.current_position() {
-            session.position_seconds = Some(position.as_secs_f64());
+        if let Some(active) = session.active_session.as_ref() {
+            active.handle.pause()?;
+            if let Some(position) = active.handle.current_position() {
+                session.position_seconds = Some(position.as_secs_f64());
+            }
         }
         session.playback_state = PlaybackState::Paused;
         self.publish_locked(&mut session)
@@ -335,7 +432,9 @@ impl PlayerService {
             return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
-        self.backend.resume()?;
+        if let Some(active) = session.active_session.as_ref() {
+            active.handle.resume()?;
+        }
         session.playback_state = PlaybackState::Playing;
         session.last_error = None;
         self.publish_locked(&mut session)
@@ -356,14 +455,19 @@ impl PlayerService {
             PlaybackState::Stopped
         };
 
-        if session.playback_state == target_state {
+        if session.playback_state == target_state && session.active_session.is_none() {
             return Ok(Self::snapshot_from_session(&session, self.backend_name));
         }
 
-        self.backend.stop()?;
+        if let Some(active) = session.active_session.take() {
+            active.handle.stop()?;
+        }
         session.playback_state = target_state;
         session.position_seconds = session.queue.current().map(|_| 0.0);
-        self.publish_locked(&mut session)
+        let snapshot = self.publish_locked(&mut session)?;
+        drop(session);
+        self.bind_runtime_receiver(None);
+        Ok(snapshot)
     }
 
     /// 切换到下一首并尝试播放。
@@ -444,8 +548,13 @@ impl PlayerService {
         session.playback_state = PlaybackState::Idle;
         session.last_error = None;
         session.position_seconds = None;
-        self.backend.stop()?;
-        self.publish_locked(&mut session)
+        if let Some(active) = session.active_session.take() {
+            active.handle.stop()?;
+        }
+        let snapshot = self.publish_locked(&mut session)?;
+        drop(session);
+        self.bind_runtime_receiver(None);
+        Ok(snapshot)
     }
 
     /// 删除指定队列项。
@@ -552,7 +661,9 @@ impl PlayerService {
 
         session.volume_percent = clamped;
         session.muted = false;
-        self.backend.set_volume(Self::volume_factor(&session))?;
+        if let Some(active) = session.active_session.as_ref() {
+            active.handle.set_volume(Self::volume_factor(&session))?;
+        }
         self.publish_locked(&mut session)
     }
 
@@ -570,7 +681,9 @@ impl PlayerService {
         }
 
         session.muted = true;
-        self.backend.set_volume(0.0)?;
+        if let Some(active) = session.active_session.as_ref() {
+            active.handle.set_volume(0.0)?;
+        }
         self.publish_locked(&mut session)
     }
 
@@ -588,7 +701,9 @@ impl PlayerService {
         }
 
         session.muted = false;
-        self.backend.set_volume(Self::volume_factor(&session))?;
+        if let Some(active) = session.active_session.as_ref() {
+            active.handle.set_volume(Self::volume_factor(&session))?;
+        }
         self.publish_locked(&mut session)
     }
 
@@ -642,7 +757,11 @@ impl PlayerService {
             return Ok(None);
         }
 
-        let Some(position) = self.backend.current_position() else {
+        let Some(position) = session
+            .active_session
+            .as_ref()
+            .and_then(|active| active.handle.current_position())
+        else {
             return Ok(None);
         };
         let position_seconds = position.as_secs_f64();
@@ -686,9 +805,11 @@ impl PlayerService {
                     {
                         Some(next_index) => {
                             let _ = session.queue.play_index(next_index);
+                            session.active_session = None;
                             true
                         }
                         None => {
+                            session.active_session = None;
                             session.playback_state = PlaybackState::Stopped;
                             session.last_error = None;
                             session.position_seconds = session.queue.current().map(|_| 0.0);
@@ -698,6 +819,7 @@ impl PlayerService {
                     }
                 };
 
+                self.bind_runtime_receiver(None);
                 if should_advance {
                     let _ = self.play().await;
                 }
@@ -711,10 +833,13 @@ impl PlayerService {
                     return;
                 }
 
+                session.active_session = None;
                 session.playback_state = PlaybackState::Stopped;
                 session.last_error = None;
                 session.position_seconds = session.queue.current().map(|_| 0.0);
                 let _ = self.publish_locked(&mut session);
+                drop(session);
+                self.bind_runtime_receiver(None);
             }
             PlaybackRuntimeEvent::PlaybackStopped {
                 generation,
@@ -725,14 +850,31 @@ impl PlayerService {
                     return;
                 }
 
+                session.active_session = None;
                 let _ = self.fail_locked(
                     &mut session,
                     "backend_aborted",
                     "backend aborted unexpectedly",
                     MeloError::Message("backend aborted unexpectedly".to_string()),
                 );
+                drop(session);
+                self.bind_runtime_receiver(None);
             }
         }
+    }
+
+    /// 将新的运行时事件订阅器绑定到后台监听任务。
+    ///
+    /// # 参数
+    /// - `receiver`：新的运行时事件订阅器；`None` 表示解除当前绑定
+    ///
+    /// # 返回值
+    /// - 无
+    fn bind_runtime_receiver(&self, receiver: Option<PlaybackRuntimeReceiver>) {
+        if !self.runtime_events_started.load(Ordering::SeqCst) {
+            return;
+        }
+        let _ = self.runtime_binding_tx.send(receiver);
     }
 
     /// 根据内部会话生成对外快照。
@@ -751,7 +893,7 @@ impl PlayerService {
         let navigation = Self::navigation(session);
         PlayerSnapshot {
             backend_name: backend_name.to_string(),
-            backend_notice: None,
+            backend_notice: session.backend_notice.clone(),
             playback_state: session.playback_state.as_str().to_string(),
             queue_preview: session
                 .queue

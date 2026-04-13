@@ -10,7 +10,9 @@ use tokio::sync::broadcast;
 
 use crate::core::config::settings::Settings;
 use crate::core::error::{MeloError, MeloResult};
-use crate::domain::player::backend::PlaybackBackend;
+use crate::domain::player::backend::{
+    PlaybackBackend, PlaybackSessionHandle, PlaybackStartRequest,
+};
 use crate::domain::player::runtime::{
     PlaybackRuntimeEvent, PlaybackRuntimeReceiver, PlaybackStopReason,
 };
@@ -30,7 +32,14 @@ pub struct MpvBackend {
     mpv_path: String,
     ipc_dir: String,
     extra_args: Vec<String>,
-    process: Mutex<Option<MpvProcess>>,
+    process: Arc<Mutex<Option<MpvProcess>>>,
+    runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
+    current_position: Arc<Mutex<Option<Duration>>>,
+    expected_stop_generation: Arc<AtomicU64>,
+}
+
+struct MpvPlaybackSession {
+    process: Arc<Mutex<Option<MpvProcess>>>,
     runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
     current_position: Arc<Mutex<Option<Duration>>>,
     expected_stop_generation: Arc<AtomicU64>,
@@ -50,7 +59,7 @@ impl MpvBackend {
             mpv_path: settings.player.mpv.path,
             ipc_dir: settings.player.mpv.ipc_dir,
             extra_args: settings.player.mpv.extra_args,
-            process: Mutex::new(None),
+            process: Arc::new(Mutex::new(None)),
             runtime_tx,
             current_position: Arc::new(Mutex::new(None)),
             expected_stop_generation: Arc::new(AtomicU64::new(0)),
@@ -106,30 +115,11 @@ impl MpvBackend {
     /// # 返回值
     /// - `MeloResult<()>`：停止结果
     fn stop_process_locked(&self, guard: &mut Option<MpvProcess>) -> MeloResult<()> {
-        if let Some(mut process) = guard.take() {
-            self.expected_stop_generation
-                .store(process.generation, Ordering::SeqCst);
-            let _ = process.child.kill();
-            let _ = process.child.wait();
-            cleanup_ipc_path(&process.ipc_path);
-        }
-        *self.current_position.lock().unwrap() = None;
-        Ok(())
-    }
-
-    /// 向当前 `mpv` 进程发送一条 JSON IPC 命令。
-    ///
-    /// # 参数
-    /// - `command`：待发送的 JSON 命令
-    ///
-    /// # 返回值
-    /// - `MeloResult<()>`：发送结果
-    fn send_command(&self, command: serde_json::Value) -> MeloResult<()> {
-        let mut process = self.process.lock().unwrap();
-        let Some(state) = process.as_mut() else {
-            return Ok(());
-        };
-        write_json_line(&mut state.command_pipe, &command)
+        stop_process_state(
+            guard,
+            &self.current_position,
+            &self.expected_stop_generation,
+        )
     }
 }
 
@@ -159,93 +149,77 @@ impl PlaybackBackend for MpvBackend {
         "mpv_ipc"
     }
 
-    /// 启动一个新的 `mpv` 进程并立即播放目标文件。
+    /// 创建并启动一个新的 `mpv` 播放会话。
     ///
     /// # 参数
-    /// - `path`：待播放音频文件路径
-    /// - `generation`：当前播放代次
+    /// - `request`：播放启动参数
     ///
     /// # 返回值
-    /// - `MeloResult<()>`：执行结果
-    fn load_and_play(&self, path: &Path, generation: u64) -> MeloResult<()> {
+    /// - `MeloResult<Box<dyn PlaybackSessionHandle>>`：单次播放控制句柄
+    fn start_session(
+        &self,
+        request: PlaybackStartRequest,
+    ) -> MeloResult<Box<dyn PlaybackSessionHandle>> {
         let mut process = self.process.lock().unwrap();
         self.stop_process_locked(&mut process)?;
         *self.current_position.lock().unwrap() = Some(Duration::from_secs(0));
-        *process = Some(self.spawn_process(path, generation)?);
-        Ok(())
-    }
+        *process = Some(self.spawn_process(&request.path, request.generation)?);
+        drop(process);
 
-    /// 暂停当前播放。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `MeloResult<()>`：执行结果
+        let session = MpvPlaybackSession {
+            process: Arc::clone(&self.process),
+            runtime_tx: self.runtime_tx.clone(),
+            current_position: Arc::clone(&self.current_position),
+            expected_stop_generation: Arc::clone(&self.expected_stop_generation),
+        };
+        session.set_volume(request.volume_factor)?;
+        Ok(Box::new(session))
+    }
+}
+
+impl PlaybackSessionHandle for MpvPlaybackSession {
     fn pause(&self) -> MeloResult<()> {
-        self.send_command(serde_json::json!({
-            "command": ["set_property", "pause", true]
-        }))
+        send_process_command(
+            &self.process,
+            serde_json::json!({
+                "command": ["set_property", "pause", true]
+            }),
+        )
     }
 
-    /// 恢复当前播放。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `MeloResult<()>`：执行结果
     fn resume(&self) -> MeloResult<()> {
-        self.send_command(serde_json::json!({
-            "command": ["set_property", "pause", false]
-        }))
+        send_process_command(
+            &self.process,
+            serde_json::json!({
+                "command": ["set_property", "pause", false]
+            }),
+        )
     }
 
-    /// 停止当前播放。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `MeloResult<()>`：执行结果
     fn stop(&self) -> MeloResult<()> {
         let mut process = self.process.lock().unwrap();
-        self.stop_process_locked(&mut process)
+        stop_process_state(
+            &mut process,
+            &self.current_position,
+            &self.expected_stop_generation,
+        )
     }
 
-    /// 订阅 `mpv` 运行时事件。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `PlaybackRuntimeReceiver`：运行时事件订阅器
     fn subscribe_runtime_events(&self) -> PlaybackRuntimeReceiver {
         self.runtime_tx.subscribe()
     }
 
-    /// 返回当前缓存的播放位置。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `Option<Duration>`：最近一次从 `mpv` IPC 事件读到的位置
     fn current_position(&self) -> Option<Duration> {
         *self.current_position.lock().unwrap()
     }
 
-    /// 设置当前播放音量。
-    ///
-    /// # 参数
-    /// - `factor`：音量系数，`1.0` 表示 100%
-    ///
-    /// # 返回值
-    /// - `MeloResult<()>`：执行结果
     fn set_volume(&self, factor: f32) -> MeloResult<()> {
-        self.send_command(serde_json::json!({
-            "command": ["set_property", "volume", factor.max(0.0) * 100.0]
-        }))
+        send_process_command(
+            &self.process,
+            serde_json::json!({
+                "command": ["set_property", "volume", factor.max(0.0) * 100.0]
+            }),
+        )
     }
 }
 
@@ -422,6 +396,49 @@ fn write_json_line(pipe: &mut File, value: &serde_json::Value) -> MeloResult<()>
     pipe.write_all(&payload)
         .and_then(|_| pipe.flush())
         .map_err(|err| MeloError::Message(err.to_string()))
+}
+
+/// 停掉当前 `mpv` 子进程并清理共享状态。
+///
+/// # 参数
+/// - `guard`：当前受锁保护的进程状态
+/// - `current_position`：共享的当前位置缓存
+/// - `expected_stop_generation`：记录显式停止代次的共享状态
+///
+/// # 返回值
+/// - `MeloResult<()>`：停止结果
+fn stop_process_state(
+    guard: &mut Option<MpvProcess>,
+    current_position: &Arc<Mutex<Option<Duration>>>,
+    expected_stop_generation: &AtomicU64,
+) -> MeloResult<()> {
+    if let Some(mut process) = guard.take() {
+        expected_stop_generation.store(process.generation, Ordering::SeqCst);
+        let _ = process.child.kill();
+        let _ = process.child.wait();
+        cleanup_ipc_path(&process.ipc_path);
+    }
+    *current_position.lock().unwrap() = None;
+    Ok(())
+}
+
+/// 向共享 `mpv` 进程发送一条 JSON IPC 命令。
+///
+/// # 参数
+/// - `process`：共享进程状态
+/// - `command`：待发送的 JSON 命令
+///
+/// # 返回值
+/// - `MeloResult<()>`：发送结果
+fn send_process_command(
+    process: &Arc<Mutex<Option<MpvProcess>>>,
+    command: serde_json::Value,
+) -> MeloResult<()> {
+    let mut process = process.lock().unwrap();
+    let Some(state) = process.as_mut() else {
+        return Ok(());
+    };
+    write_json_line(&mut state.command_pipe, &command)
 }
 
 /// 启动一个后台线程读取 `mpv` IPC 事件。

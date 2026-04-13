@@ -1,20 +1,44 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::broadcast;
 
 use crate::core::model::player::{PlaybackState, QueueItem, RepeatMode};
-use crate::domain::player::backend::{PlaybackBackend, PlaybackCommand};
+use crate::domain::player::backend::{
+    PlaybackBackend, PlaybackCommand, PlaybackSessionHandle, PlaybackStartRequest,
+};
 use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackStopReason};
 use crate::domain::player::service::PlayerService;
 use crate::domain::player::session_store::PersistedPlayerSession;
 
 #[derive(Clone)]
 struct FakeRuntimeHandle {
-    tx: broadcast::Sender<PlaybackRuntimeEvent>,
+    session_channels: Arc<Mutex<HashMap<u64, broadcast::Sender<PlaybackRuntimeEvent>>>>,
 }
 
 impl FakeRuntimeHandle {
+    /// 向指定播放代次注入一次停止事件。
+    ///
+    /// # 参数
+    /// - `generation`：触发事件的播放代次
+    /// - `reason`：停止原因
+    ///
+    /// # 返回值
+    /// - 无
+    fn send_stop(&self, generation: u64, reason: PlaybackStopReason) {
+        let sender = self
+            .session_channels
+            .lock()
+            .unwrap()
+            .get(&generation)
+            .cloned();
+        let Some(sender) = sender else {
+            return;
+        };
+        let _ = sender.send(PlaybackRuntimeEvent::PlaybackStopped { generation, reason });
+    }
+
     /// 向服务层注入一次“当前曲目自然结束”的运行时事件。
     ///
     /// # 参数
@@ -23,16 +47,22 @@ impl FakeRuntimeHandle {
     /// # 返回值
     /// - 无
     fn track_ended(&self, generation: u64) {
-        let _ = self.tx.send(PlaybackRuntimeEvent::PlaybackStopped {
-            generation,
-            reason: PlaybackStopReason::NaturalEof,
-        });
+        self.send_stop(generation, PlaybackStopReason::NaturalEof);
     }
 }
 
 struct FakeBackend {
     commands: Arc<Mutex<Vec<PlaybackCommand>>>,
     fail_next: Arc<Mutex<bool>>,
+    current_position: Arc<Mutex<Option<Duration>>>,
+    stopped_generations: Arc<Mutex<Vec<u64>>>,
+    session_channels: Arc<Mutex<HashMap<u64, broadcast::Sender<PlaybackRuntimeEvent>>>>,
+}
+
+struct FakeSessionHandle {
+    generation: u64,
+    commands: Arc<Mutex<Vec<PlaybackCommand>>>,
+    stopped_generations: Arc<Mutex<Vec<u64>>>,
     current_position: Arc<Mutex<Option<Duration>>>,
     runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
 }
@@ -46,12 +76,12 @@ impl Default for FakeBackend {
     /// # 返回值
     /// - `Self`：测试后端
     fn default() -> Self {
-        let (runtime_tx, _) = broadcast::channel(16);
         Self {
             commands: Arc::new(Mutex::new(Vec::new())),
             fail_next: Arc::new(Mutex::new(false)),
             current_position: Arc::new(Mutex::new(None)),
-            runtime_tx,
+            stopped_generations: Arc::new(Mutex::new(Vec::new())),
+            session_channels: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -66,7 +96,7 @@ impl FakeBackend {
     /// - `FakeRuntimeHandle`：运行时事件句柄
     fn runtime_handle(&self) -> FakeRuntimeHandle {
         FakeRuntimeHandle {
-            tx: self.runtime_tx.clone(),
+            session_channels: Arc::clone(&self.session_channels),
         }
     }
 
@@ -80,33 +110,20 @@ impl FakeBackend {
     fn set_position(&self, seconds: f64) {
         *self.current_position.lock().unwrap() = Some(Duration::from_secs_f64(seconds));
     }
+
+    /// 返回被停止过的播放代次列表。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `Vec<u64>`：已收到 stop 命令的代次
+    fn stopped_generations(&self) -> Vec<u64> {
+        self.stopped_generations.lock().unwrap().clone()
+    }
 }
 
-impl PlaybackBackend for FakeBackend {
-    fn backend_name(&self) -> &'static str {
-        "fake"
-    }
-
-    fn load_and_play(
-        &self,
-        path: &std::path::Path,
-        generation: u64,
-    ) -> crate::core::error::MeloResult<()> {
-        let mut fail_next = self.fail_next.lock().unwrap();
-        if *fail_next {
-            *fail_next = false;
-            return Err(crate::core::error::MeloError::Message(
-                "backend failed".to_string(),
-            ));
-        }
-
-        self.commands.lock().unwrap().push(PlaybackCommand::Load {
-            path: path.to_path_buf(),
-            generation,
-        });
-        Ok(())
-    }
-
+impl PlaybackSessionHandle for FakeSessionHandle {
     fn pause(&self) -> crate::core::error::MeloResult<()> {
         self.commands.lock().unwrap().push(PlaybackCommand::Pause);
         Ok(())
@@ -119,6 +136,10 @@ impl PlaybackBackend for FakeBackend {
 
     fn stop(&self) -> crate::core::error::MeloResult<()> {
         self.commands.lock().unwrap().push(PlaybackCommand::Stop);
+        self.stopped_generations
+            .lock()
+            .unwrap()
+            .push(self.generation);
         Ok(())
     }
 
@@ -136,6 +157,44 @@ impl PlaybackBackend for FakeBackend {
             .unwrap()
             .push(PlaybackCommand::SetVolume { factor });
         Ok(())
+    }
+}
+
+impl PlaybackBackend for FakeBackend {
+    fn backend_name(&self) -> &'static str {
+        "fake"
+    }
+
+    fn start_session(
+        &self,
+        request: PlaybackStartRequest,
+    ) -> crate::core::error::MeloResult<Box<dyn PlaybackSessionHandle>> {
+        let mut fail_next = self.fail_next.lock().unwrap();
+        if *fail_next {
+            *fail_next = false;
+            return Err(crate::core::error::MeloError::Message(
+                "backend failed".to_string(),
+            ));
+        }
+
+        self.commands.lock().unwrap().push(PlaybackCommand::Load {
+            path: request.path.clone(),
+            generation: request.generation,
+        });
+
+        let (runtime_tx, _) = broadcast::channel(16);
+        self.session_channels
+            .lock()
+            .unwrap()
+            .insert(request.generation, runtime_tx.clone());
+
+        Ok(Box::new(FakeSessionHandle {
+            generation: request.generation,
+            commands: Arc::clone(&self.commands),
+            stopped_generations: Arc::clone(&self.stopped_generations),
+            current_position: Arc::clone(&self.current_position),
+            runtime_tx,
+        }))
     }
 }
 
@@ -269,10 +328,7 @@ async fn runtime_user_closed_backend_stops_without_advancing() {
     service.append(item(2, "Two")).await.unwrap();
     service.play().await.unwrap();
 
-    let _ = runtime.tx.send(PlaybackRuntimeEvent::PlaybackStopped {
-        generation: 1,
-        reason: PlaybackStopReason::UserClosedBackend,
-    });
+    runtime.send_stop(1, PlaybackStopReason::UserClosedBackend);
     tokio::task::yield_now().await;
 
     let snapshot = service.snapshot().await;
@@ -292,10 +348,7 @@ async fn runtime_backend_aborted_sets_error_without_auto_next() {
     service.append(item(2, "Two")).await.unwrap();
     service.play().await.unwrap();
 
-    let _ = runtime.tx.send(PlaybackRuntimeEvent::PlaybackStopped {
-        generation: 1,
-        reason: PlaybackStopReason::BackendAborted,
-    });
+    runtime.send_stop(1, PlaybackStopReason::BackendAborted);
     tokio::task::yield_now().await;
 
     let snapshot = service.snapshot().await;
@@ -381,6 +434,8 @@ async fn restore_persisted_playing_session_downgrades_to_stopped() {
 async fn set_volume_updates_snapshot_and_backend_once() {
     let backend = Arc::new(FakeBackend::default());
     let service = PlayerService::new(backend.clone());
+    service.append(item(1, "One")).await.unwrap();
+    service.play().await.unwrap();
 
     let snapshot = service.set_volume_percent(70).await.unwrap();
     let second = service.set_volume_percent(70).await.unwrap();
@@ -516,4 +571,32 @@ async fn snapshot_includes_backend_name() {
 
     let snapshot = service.snapshot().await;
     assert_eq!(snapshot.backend_name, "noop");
+}
+
+#[tokio::test]
+async fn replay_stops_previous_session_before_creating_new_one() {
+    let backend = Arc::new(FakeBackend::default());
+    let service = Arc::new(PlayerService::new(backend.clone()));
+
+    service.append(item(1, "One")).await.unwrap();
+    service.append(item(2, "Two")).await.unwrap();
+    service.play().await.unwrap();
+    service.next().await.unwrap();
+
+    assert_eq!(backend.stopped_generations(), vec![1]);
+}
+
+#[tokio::test]
+async fn snapshot_exposes_backend_notice() {
+    let backend = Arc::new(FakeBackend::default());
+    let service = PlayerService::new_with_notice(
+        backend,
+        Some("mpv_lib unavailable, fell back to mpv_ipc".to_string()),
+    );
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(
+        snapshot.backend_notice.as_deref(),
+        Some("mpv_lib unavailable, fell back to mpv_ipc")
+    );
 }

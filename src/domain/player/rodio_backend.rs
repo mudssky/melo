@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 use crate::core::error::{MeloError, MeloResult};
-use crate::domain::player::backend::PlaybackBackend;
+use crate::domain::player::backend::{
+    PlaybackBackend, PlaybackSessionHandle, PlaybackStartRequest,
+};
 use crate::domain::player::runtime::{
     PlaybackRuntimeEvent, PlaybackRuntimeReceiver, PlaybackStopReason,
 };
@@ -12,7 +14,12 @@ use crate::domain::player::runtime::{
 /// 基于 `rodio` 的真实播放后端。
 pub struct RodioBackend {
     sink: rodio::MixerDeviceSink,
-    player: Mutex<Option<Arc<rodio::Player>>>,
+    player: Arc<Mutex<Option<Arc<rodio::Player>>>>,
+    active_generation: Arc<AtomicU64>,
+}
+
+struct RodioPlaybackSession {
+    player: Arc<Mutex<Option<Arc<rodio::Player>>>>,
     runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
     active_generation: Arc<AtomicU64>,
 }
@@ -28,11 +35,9 @@ impl RodioBackend {
     pub fn new() -> MeloResult<Self> {
         let sink = rodio::DeviceSinkBuilder::open_default_sink()
             .map_err(|err| MeloError::Message(err.to_string()))?;
-        let (runtime_tx, _) = broadcast::channel(16);
         Ok(Self {
             sink,
-            player: Mutex::new(None),
-            runtime_tx,
+            player: Arc::new(Mutex::new(None)),
             active_generation: Arc::new(AtomicU64::new(0)),
         })
     }
@@ -91,44 +96,51 @@ impl PlaybackBackend for RodioBackend {
         "rodio"
     }
 
-    /// 加载并立即播放给定文件。
+    /// 创建并启动一个新的 `rodio` 播放会话。
     ///
     /// # 参数
-    /// - `path`：待播放音频文件路径
+    /// - `request`：播放启动参数
     ///
     /// # 返回值
-    /// - `MeloResult<()>`：执行结果
-    fn load_and_play(&self, path: &std::path::Path, generation: u64) -> MeloResult<()> {
-        let file = std::fs::File::open(path).map_err(|err| MeloError::Message(err.to_string()))?;
+    /// - `MeloResult<Box<dyn PlaybackSessionHandle>>`：单次播放控制句柄
+    fn start_session(
+        &self,
+        request: PlaybackStartRequest,
+    ) -> MeloResult<Box<dyn PlaybackSessionHandle>> {
+        let file = std::fs::File::open(&request.path)
+            .map_err(|err| MeloError::Message(err.to_string()))?;
         let decoder =
             rodio::Decoder::try_from(file).map_err(|err| MeloError::Message(err.to_string()))?;
         let player = Arc::new(rodio::Player::connect_new(self.sink.mixer()));
         player.append(decoder);
         player.play();
 
-        self.active_generation.store(generation, Ordering::SeqCst);
+        self.active_generation
+            .store(request.generation, Ordering::SeqCst);
         let mut current_player = self.player.lock().unwrap();
         if let Some(previous_player) = current_player.replace(Arc::clone(&player)) {
             previous_player.stop();
         }
         drop(current_player);
 
+        let (runtime_tx, _) = broadcast::channel(16);
         Self::spawn_track_end_watcher(
-            self.runtime_tx.clone(),
+            runtime_tx.clone(),
             Arc::clone(&self.active_generation),
-            generation,
+            request.generation,
             player,
         );
-        Ok(())
+        let session = RodioPlaybackSession {
+            player: Arc::clone(&self.player),
+            runtime_tx,
+            active_generation: Arc::clone(&self.active_generation),
+        };
+        session.set_volume(request.volume_factor)?;
+        Ok(Box::new(session))
     }
+}
 
-    /// 暂停当前播放。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `MeloResult<()>`：执行结果
+impl PlaybackSessionHandle for RodioPlaybackSession {
     fn pause(&self) -> MeloResult<()> {
         if let Some(player) = self.player.lock().unwrap().as_ref() {
             player.pause();
@@ -136,13 +148,6 @@ impl PlaybackBackend for RodioBackend {
         Ok(())
     }
 
-    /// 恢复当前播放。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `MeloResult<()>`：执行结果
     fn resume(&self) -> MeloResult<()> {
         if let Some(player) = self.player.lock().unwrap().as_ref() {
             player.play();
@@ -150,13 +155,6 @@ impl PlaybackBackend for RodioBackend {
         Ok(())
     }
 
-    /// 停止当前播放。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `MeloResult<()>`：执行结果
     fn stop(&self) -> MeloResult<()> {
         self.active_generation.store(0, Ordering::SeqCst);
         if let Some(player) = self.player.lock().unwrap().take() {
@@ -165,24 +163,10 @@ impl PlaybackBackend for RodioBackend {
         Ok(())
     }
 
-    /// 订阅播放后端运行时事件。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `PlaybackRuntimeReceiver`：运行时事件订阅器
     fn subscribe_runtime_events(&self) -> PlaybackRuntimeReceiver {
         self.runtime_tx.subscribe()
     }
 
-    /// 读取当前播放器的播放位置。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回值
-    /// - `Option<Duration>`：当前播放位置
     fn current_position(&self) -> Option<std::time::Duration> {
         self.player
             .lock()
@@ -191,13 +175,6 @@ impl PlaybackBackend for RodioBackend {
             .map(|player| player.get_pos())
     }
 
-    /// 设置当前播放器音量。
-    ///
-    /// # 参数
-    /// - `factor`：目标音量系数
-    ///
-    /// # 返回值
-    /// - `MeloResult<()>`：执行结果
     fn set_volume(&self, factor: f32) -> MeloResult<()> {
         if let Some(player) = self.player.lock().unwrap().as_ref() {
             player.set_volume(factor);

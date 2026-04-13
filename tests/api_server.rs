@@ -4,7 +4,9 @@ use axum::body::{Body, to_bytes};
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use futures_util::StreamExt;
-use melo::domain::player::backend::{PlaybackBackend, PlaybackCommand};
+use melo::domain::player::backend::{
+    PlaybackBackend, PlaybackCommand, PlaybackSessionHandle, PlaybackStartRequest,
+};
 use melo::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackStopReason};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
@@ -32,6 +34,10 @@ struct EventedBackend {
     runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
 }
 
+struct EventedSessionHandle {
+    runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
+}
+
 impl Default for EventedBackend {
     fn default() -> Self {
         let (runtime_tx, _) = broadcast::channel(16);
@@ -56,18 +62,21 @@ impl PlaybackBackend for EventedBackend {
         "evented"
     }
 
-    fn load_and_play(
+    fn start_session(
         &self,
-        path: &std::path::Path,
-        generation: u64,
-    ) -> melo::core::error::MeloResult<()> {
+        request: PlaybackStartRequest,
+    ) -> melo::core::error::MeloResult<Box<dyn PlaybackSessionHandle>> {
         self.commands.lock().unwrap().push(PlaybackCommand::Load {
-            path: path.to_path_buf(),
-            generation,
+            path: request.path,
+            generation: request.generation,
         });
-        Ok(())
+        Ok(Box::new(EventedSessionHandle {
+            runtime_tx: self.runtime_tx.clone(),
+        }))
     }
+}
 
+impl PlaybackSessionHandle for EventedSessionHandle {
     fn pause(&self) -> melo::core::error::MeloResult<()> {
         Ok(())
     }

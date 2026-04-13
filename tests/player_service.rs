@@ -1,42 +1,30 @@
 use std::sync::{Arc, Mutex};
 
-use melo::domain::player::backend::{PlaybackBackend, PlaybackCommand};
+use melo::domain::player::backend::{
+    PlaybackBackend, PlaybackCommand, PlaybackSessionHandle, PlaybackStartRequest,
+};
 use melo::domain::player::runtime::PlaybackRuntimeEvent;
 use melo::domain::player::service::PlayerService;
 use tokio::sync::broadcast;
 
 struct FakeBackend {
     commands: Arc<Mutex<Vec<PlaybackCommand>>>,
-    runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
 }
 
 impl Default for FakeBackend {
     fn default() -> Self {
-        let (runtime_tx, _) = broadcast::channel(16);
         Self {
             commands: Arc::new(Mutex::new(Vec::new())),
-            runtime_tx,
         }
     }
 }
 
-impl PlaybackBackend for FakeBackend {
-    fn backend_name(&self) -> &'static str {
-        "fake"
-    }
+struct FakeSessionHandle {
+    commands: Arc<Mutex<Vec<PlaybackCommand>>>,
+    runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
+}
 
-    fn load_and_play(
-        &self,
-        path: &std::path::Path,
-        generation: u64,
-    ) -> melo::core::error::MeloResult<()> {
-        self.commands.lock().unwrap().push(PlaybackCommand::Load {
-            path: path.to_path_buf(),
-            generation,
-        });
-        Ok(())
-    }
-
+impl PlaybackSessionHandle for FakeSessionHandle {
     fn pause(&self) -> melo::core::error::MeloResult<()> {
         self.commands.lock().unwrap().push(PlaybackCommand::Pause);
         Ok(())
@@ -66,6 +54,27 @@ impl PlaybackBackend for FakeBackend {
             .unwrap()
             .push(PlaybackCommand::SetVolume { factor });
         Ok(())
+    }
+}
+
+impl PlaybackBackend for FakeBackend {
+    fn backend_name(&self) -> &'static str {
+        "fake"
+    }
+
+    fn start_session(
+        &self,
+        request: PlaybackStartRequest,
+    ) -> melo::core::error::MeloResult<Box<dyn PlaybackSessionHandle>> {
+        self.commands.lock().unwrap().push(PlaybackCommand::Load {
+            path: request.path,
+            generation: request.generation,
+        });
+        let (runtime_tx, _) = broadcast::channel(16);
+        Ok(Box::new(FakeSessionHandle {
+            commands: Arc::clone(&self.commands),
+            runtime_tx,
+        }))
     }
 }
 

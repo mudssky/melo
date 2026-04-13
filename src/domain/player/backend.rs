@@ -19,6 +19,73 @@ pub enum PlaybackCommand {
     },
 }
 
+/// 启动一次播放会话所需的参数。
+pub struct PlaybackStartRequest {
+    /// 待播放文件路径。
+    pub path: std::path::PathBuf,
+    /// 当前播放代次，用于忽略过期运行时事件。
+    pub generation: u64,
+    /// 启动时应应用的音量系数。
+    pub volume_factor: f32,
+}
+
+/// 单次播放生命周期的控制句柄。
+pub trait PlaybackSessionHandle: Send + Sync {
+    /// 暂停当前播放会话。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `MeloResult<()>`：执行结果
+    fn pause(&self) -> crate::core::error::MeloResult<()>;
+
+    /// 恢复当前播放会话。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `MeloResult<()>`：执行结果
+    fn resume(&self) -> crate::core::error::MeloResult<()>;
+
+    /// 停止当前播放会话。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `MeloResult<()>`：执行结果
+    fn stop(&self) -> crate::core::error::MeloResult<()>;
+
+    /// 订阅当前播放会话的运行时事件。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `PlaybackRuntimeReceiver`：运行时事件订阅器
+    fn subscribe_runtime_events(&self) -> PlaybackRuntimeReceiver;
+
+    /// 读取当前播放会话的播放位置。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回
+    /// - `Option<Duration>`：当前播放位置；未知时返回 `None`
+    fn current_position(&self) -> Option<Duration>;
+
+    /// 更新当前播放会话的音量系数。
+    ///
+    /// # 参数
+    /// - `factor`：音量系数，`1.0` 为默认音量
+    ///
+    /// # 返回
+    /// - `MeloResult<()>`：执行结果
+    fn set_volume(&self, factor: f32) -> crate::core::error::MeloResult<()>;
+}
+
 /// 播放后端抽象，便于测试替身与真实音频输出解耦。
 pub trait PlaybackBackend: Send + Sync {
     /// 返回当前后端的稳定名称。
@@ -30,92 +97,26 @@ pub trait PlaybackBackend: Send + Sync {
     /// - `&'static str`：后端稳定名称
     fn backend_name(&self) -> &'static str;
 
-    /// 加载并立即播放文件。
+    /// 基于请求创建一个新的播放会话。
     ///
     /// # 参数
-    /// - `path`：待播放文件路径
-    /// - `generation`：当前播放代次，用于忽略过期结束事件
+    /// - `request`：播放启动参数
     ///
     /// # 返回
-    /// - `MeloResult<()>`：执行结果
-    fn load_and_play(
+    /// - `MeloResult<Box<dyn PlaybackSessionHandle>>`：可控制单次播放生命周期的句柄
+    fn start_session(
         &self,
-        path: &std::path::Path,
-        generation: u64,
-    ) -> crate::core::error::MeloResult<()>;
-
-    /// 暂停当前播放。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回
-    /// - `MeloResult<()>`：执行结果
-    fn pause(&self) -> crate::core::error::MeloResult<()>;
-
-    /// 恢复播放。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回
-    /// - `MeloResult<()>`：执行结果
-    fn resume(&self) -> crate::core::error::MeloResult<()>;
-
-    /// 停止播放。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回
-    /// - `MeloResult<()>`：执行结果
-    fn stop(&self) -> crate::core::error::MeloResult<()>;
-
-    /// 订阅后端运行时事件。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回
-    /// - `PlaybackRuntimeReceiver`：运行时事件订阅器
-    fn subscribe_runtime_events(&self) -> PlaybackRuntimeReceiver;
-
-    /// 读取当前播放位置。
-    ///
-    /// # 参数
-    /// - 无
-    ///
-    /// # 返回
-    /// - `Option<Duration>`：当前播放位置；未知时返回 `None`
-    fn current_position(&self) -> Option<Duration>;
-
-    /// 设置当前播放音量系数。
-    ///
-    /// # 参数
-    /// - `factor`：音量系数，`1.0` 为默认音量
-    ///
-    /// # 返回
-    /// - `MeloResult<()>`：执行结果
-    fn set_volume(&self, factor: f32) -> crate::core::error::MeloResult<()>;
+        request: PlaybackStartRequest,
+    ) -> crate::core::error::MeloResult<Box<dyn PlaybackSessionHandle>>;
 }
 
 /// 空实现后端，便于测试 API 宿主等不需要真实声音输出的场景。
 #[derive(Default)]
 pub struct NoopBackend;
 
-impl PlaybackBackend for NoopBackend {
-    fn backend_name(&self) -> &'static str {
-        "noop"
-    }
+struct NoopPlaybackSession;
 
-    fn load_and_play(
-        &self,
-        _path: &std::path::Path,
-        _generation: u64,
-    ) -> crate::core::error::MeloResult<()> {
-        Ok(())
-    }
-
+impl PlaybackSessionHandle for NoopPlaybackSession {
     fn pause(&self) -> crate::core::error::MeloResult<()> {
         Ok(())
     }
@@ -141,3 +142,19 @@ impl PlaybackBackend for NoopBackend {
         Ok(())
     }
 }
+
+impl PlaybackBackend for NoopBackend {
+    fn backend_name(&self) -> &'static str {
+        "noop"
+    }
+
+    fn start_session(
+        &self,
+        _request: PlaybackStartRequest,
+    ) -> crate::core::error::MeloResult<Box<dyn PlaybackSessionHandle>> {
+        Ok(Box::new(NoopPlaybackSession))
+    }
+}
+
+#[cfg(test)]
+mod tests;
