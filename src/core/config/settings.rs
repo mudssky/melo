@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 use crate::core::config::paths;
 use crate::core::error::{MeloError, MeloResult};
+use crate::core::model::playback_mode::PlaybackMode;
 
 /// 数据库相关配置。
 #[derive(Debug, Clone, Deserialize)]
@@ -287,6 +288,8 @@ pub struct PlayerSettings {
     pub backend: String,
     /// 默认音量。
     pub volume: u8,
+    /// 默认播放模式。
+    pub default_mode: PlaybackMode,
     /// 是否恢复上一次 daemon 会话。
     pub restore_last_session: bool,
     /// 恢复后是否自动继续播放。
@@ -300,6 +303,7 @@ impl Default for PlayerSettings {
         Self {
             backend: "auto".to_string(),
             volume: 100,
+            default_mode: PlaybackMode::Ordered,
             restore_last_session: true,
             resume_after_restore: false,
             mpv: MpvSettings::default(),
@@ -325,6 +329,8 @@ pub struct TuiSettings {
     pub show_footer_hints: bool,
     /// 是否启用鼠标输入。
     pub mouse_enabled: bool,
+    /// 歌词手动浏览后恢复自动跟随的延迟毫秒数。
+    pub lyrics_resume_delay_ms: u64,
     /// TUI 动作到按键绑定的覆盖配置。
     pub keymap: BTreeMap<String, Vec<TuiBindingSpec>>,
 }
@@ -334,6 +340,7 @@ impl Default for TuiSettings {
         Self {
             show_footer_hints: true,
             mouse_enabled: true,
+            lyrics_resume_delay_ms: 3000,
             keymap: BTreeMap::new(),
         }
     }
@@ -578,6 +585,8 @@ impl Settings {
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("player.volume", 100)
             .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("player.default_mode", PlaybackMode::Ordered.as_str())
+            .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("player.restore_last_session", true)
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("player.resume_after_restore", false)
@@ -601,6 +610,8 @@ impl Settings {
             .set_default("tui.show_footer_hints", true)
             .map_err(|err| MeloError::Message(err.to_string()))?
             .set_default("tui.mouse_enabled", true)
+            .map_err(|err| MeloError::Message(err.to_string()))?
+            .set_default("tui.lyrics_resume_delay_ms", 3000)
             .map_err(|err| MeloError::Message(err.to_string()))?;
 
         let mut settings: Self = builder
