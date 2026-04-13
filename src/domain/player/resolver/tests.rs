@@ -91,3 +91,24 @@ fn explicit_backends_do_not_fallback() {
         .unwrap_err();
     assert!(err.to_string().contains("mpv_backend_unavailable"));
 }
+
+#[test]
+fn auto_falls_back_all_the_way_to_rodio_with_notice() {
+    let resolver = BackendResolver::default();
+    let resolved = resolver
+        .resolve_choice(
+            &settings("auto"),
+            BackendAvailability {
+                mpv_lib: false,
+                mpv_ipc: false,
+                rodio: true,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(resolved.choice, BackendChoice::Rodio);
+    assert_eq!(
+        resolved.notice.as_deref(),
+        Some("mpv_lib and mpv_ipc unavailable, fell back to rodio")
+    );
+}

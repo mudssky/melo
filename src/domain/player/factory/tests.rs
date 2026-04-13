@@ -2,12 +2,10 @@ use crate::core::config::settings::Settings;
 use crate::domain::player::factory::{BackendChoice, build_backend_for_choice};
 
 #[test]
-fn build_backend_for_choice_rejects_mpv_lib_until_backend_exists() {
+fn build_backend_for_choice_supports_mpv_lib() {
     let settings = Settings::default();
-    let err = build_backend_for_choice(BackendChoice::MpvLib, &settings)
-        .err()
-        .expect("mpv_lib should still be unavailable in task 1");
-    assert!(err.to_string().contains("mpv_lib_backend_unavailable"));
+    let backend = build_backend_for_choice(BackendChoice::MpvLib, &settings).unwrap();
+    assert_eq!(backend.backend_name(), "mpv_lib");
 }
 
 #[test]

@@ -188,13 +188,14 @@ impl AppState {
         crate::core::db::bootstrap::DatabaseBootstrap::new(&settings)
             .prepare_runtime_database()
             .await?;
-        let backend = factory::build_backend(&settings)?;
-        let backend_name = backend.backend_name().to_string();
+        let built = factory::build_backend(&settings)?;
+        let backend_name = built.backend.backend_name().to_string();
         let runtime = DaemonRuntimeMeta::live(&backend_name)?;
         Ok(Self::with_backend_and_runtime(
-            backend,
+            built.backend,
             settings,
             runtime,
+            built.notice,
             LibraryService::with_lofty,
         ))
     }
@@ -212,6 +213,7 @@ impl AppState {
             backend,
             Settings::default(),
             DaemonRuntimeMeta::for_test(&backend_name),
+            None,
             LibraryService::for_test,
         )
     }
@@ -230,12 +232,13 @@ impl AppState {
         backend: Arc<dyn PlaybackBackend>,
         settings: Settings,
         runtime: DaemonRuntimeMeta,
+        backend_notice: Option<String>,
         library_factory: F,
     ) -> Self
     where
         F: FnOnce(Settings) -> LibraryService,
     {
-        let player = Arc::new(PlayerService::new(backend));
+        let player = Arc::new(PlayerService::new_with_notice(backend, backend_notice));
         player.start_runtime_event_loop();
         player.start_progress_loop();
         let library = library_factory(settings.clone());
@@ -347,6 +350,7 @@ impl AppState {
             backend,
             settings,
             DaemonRuntimeMeta::for_test("noop"),
+            None,
             |settings| LibraryService::new(settings, Arc::new(FixtureMetadataReader)),
         )
     }
@@ -365,6 +369,7 @@ impl AppState {
             backend,
             Settings::default(),
             DaemonRuntimeMeta::for_test_with_instance_id(instance_id, "noop"),
+            None,
             LibraryService::for_test,
         )
     }

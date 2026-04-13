@@ -70,3 +70,18 @@ async fn tui_snapshot_includes_current_track_detail_when_queue_has_song() {
     assert_eq!(snapshot.current_track.song_id, Some(7));
     assert_eq!(snapshot.current_track.title.as_deref(), Some("Blue Bird"));
 }
+
+#[tokio::test]
+async fn player_service_keeps_backend_notice_from_factory_resolution() {
+    let backend = std::sync::Arc::new(crate::domain::player::backend::NoopBackend);
+    let service = crate::domain::player::service::PlayerService::new_with_notice(
+        backend,
+        Some("mpv_lib unavailable, fell back to mpv_ipc".to_string()),
+    );
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(
+        snapshot.backend_notice.as_deref(),
+        Some("mpv_lib unavailable, fell back to mpv_ipc")
+    );
+}

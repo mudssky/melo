@@ -3,7 +3,9 @@ use std::sync::Arc;
 use crate::core::config::settings::{PlayerSettings, Settings};
 use crate::core::error::{MeloError, MeloResult};
 use crate::domain::player::backend::PlaybackBackend;
+use crate::domain::player::libmpv_backend::{LibmpvBackend, libmpv_available};
 use crate::domain::player::mpv_backend::{MpvBackend, mpv_exists};
+use crate::domain::player::resolver::{BackendAvailability, BackendResolver};
 use crate::domain::player::rodio_backend::RodioBackend;
 
 /// 配置解析后的具体后端选择。
@@ -15,6 +17,14 @@ pub enum BackendChoice {
     MpvIpc,
     /// 使用 `libmpv` 后端。
     MpvLib,
+}
+
+/// 构造完成的播放后端和其对应提示信息。
+pub struct BuiltBackend {
+    /// 最终构造出的播放后端。
+    pub backend: Arc<dyn PlaybackBackend>,
+    /// 需要对用户展示的后端提示信息。
+    pub notice: Option<String>,
 }
 
 /// 根据配置和环境探测结果解析后端选择。
@@ -64,9 +74,7 @@ pub fn build_backend_for_choice(
     match choice {
         BackendChoice::Rodio => Ok(Arc::new(RodioBackend::new()?)),
         BackendChoice::MpvIpc => Ok(Arc::new(MpvBackend::new(settings.clone())?)),
-        BackendChoice::MpvLib => Err(MeloError::Message(
-            "mpv_lib_backend_unavailable".to_string(),
-        )),
+        BackendChoice::MpvLib => Ok(Arc::new(LibmpvBackend::new(settings.clone())?)),
     }
 }
 
@@ -76,11 +84,19 @@ pub fn build_backend_for_choice(
 /// - `settings`：全局配置
 ///
 /// # 返回值
-/// - `MeloResult<Arc<dyn PlaybackBackend>>`：可用的播放后端实例
-pub fn build_backend(settings: &Settings) -> MeloResult<Arc<dyn PlaybackBackend>> {
-    let choice =
-        resolve_backend_choice(&settings.player, || mpv_exists(&settings.player.mpv.path))?;
-    build_backend_for_choice(choice, settings)
+/// - `MeloResult<BuiltBackend>`：可用的播放后端实例和提示信息
+pub fn build_backend(settings: &Settings) -> MeloResult<BuiltBackend> {
+    let resolver = BackendResolver;
+    let availability = BackendAvailability {
+        mpv_lib: libmpv_available(),
+        mpv_ipc: mpv_exists(&settings.player.mpv.path),
+        rodio: true,
+    };
+    let resolved = resolver.resolve_choice(&settings.player, availability)?;
+    Ok(BuiltBackend {
+        backend: build_backend_for_choice(resolved.choice, settings)?,
+        notice: resolved.notice,
+    })
 }
 
 #[cfg(test)]
