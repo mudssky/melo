@@ -4,6 +4,7 @@ use axum::body::{Body, to_bytes};
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use futures_util::StreamExt;
+use futures_util::stream::{SplitSink, SplitStream};
 use melo::domain::player::backend::{
     PlaybackBackend, PlaybackCommand, PlaybackSessionHandle, PlaybackStartRequest,
 };
@@ -12,6 +13,7 @@ use reqwest::Url;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message;
 use tower::ServiceExt;
 
 /// 为测试请求补充连接来源信息。
@@ -33,6 +35,11 @@ struct TestServer {
     base_url: String,
 }
 
+type TestWsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type TestWsSink = SplitSink<TestWsStream, Message>;
+type TestWsReader = SplitStream<TestWsStream>;
+
 /// 启动一个临时 HTTP 测试服务器。
 ///
 /// # 参数
@@ -49,6 +56,30 @@ async fn spawn_test_server(app: axum::Router) -> TestServer {
     TestServer {
         base_url: format!("http://{addr}"),
     }
+}
+
+/// 连接测试用 WebSocket，并拆分出读写两端。
+///
+/// # 参数
+/// - `url`：目标 WebSocket 地址
+///
+/// # 返回值
+/// - `(TestWsSink, TestWsReader)`：拆分后的写端与读端
+async fn connect_test_ws(url: &str) -> (TestWsSink, TestWsReader) {
+    let (stream, _response) = connect_async(url).await.unwrap();
+    stream.split()
+}
+
+/// 读取下一条 WebSocket JSON 消息。
+///
+/// # 参数
+/// - `stream`：WebSocket 读端
+///
+/// # 返回值
+/// - `serde_json::Value`：解析后的 JSON 负载
+async fn next_ws_json(stream: &mut TestWsReader) -> serde_json::Value {
+    let message = stream.next().await.unwrap().unwrap();
+    serde_json::from_str(&message.into_text().unwrap()).unwrap()
 }
 
 #[derive(Clone)]
@@ -793,4 +824,29 @@ async fn track_content_endpoint_returns_parsed_lyrics_and_artwork_summary() {
     assert!(response["data"]["lyrics"].as_array().unwrap().len() >= 1);
     assert!(response["data"]["artwork"]["terminal_summary"].is_string());
     assert!(response["data"]["refresh_token"].is_string());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn playback_runtime_ws_streams_lightweight_updates() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    state
+        .player
+        .append(melo::core::model::player::QueueItem {
+            song_id: 1,
+            path: "tests/fixtures/full_test.mp3".into(),
+            title: "Blue Bird".into(),
+            duration_seconds: Some(212.0),
+        })
+        .await
+        .unwrap();
+
+    let app = melo::daemon::server::router(state);
+    let server = spawn_test_server(app).await;
+    let ws_url = server.base_url.replace("http://", "ws://") + "/api/ws/playback/runtime";
+    let (_socket, mut stream) = connect_test_ws(&ws_url).await;
+
+    let initial: serde_json::Value = next_ws_json(&mut stream).await;
+    assert!(initial["current_song_id"].is_null());
+    assert!(initial.get("lyrics").is_none());
+    assert!(initial.get("visible_playlists").is_none());
 }

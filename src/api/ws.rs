@@ -43,6 +43,21 @@ pub async fn tui_updates(socket: WebSocketUpgrade, State(state): State<AppState>
     socket.on_upgrade(move |websocket| stream_tui_snapshots(websocket, state))
 }
 
+/// 升级为轻量播放运行时 WebSocket 连接。
+///
+/// # 参数
+/// - `socket`：WebSocket 升级请求
+/// - `state`：应用状态
+///
+/// # 返回值
+/// - `Response`：升级响应
+pub async fn playback_runtime_updates(
+    socket: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> Response {
+    socket.on_upgrade(move |websocket| stream_playback_runtime(websocket, state))
+}
+
 /// 持续向客户端发送播放器快照。
 ///
 /// # 参数
@@ -102,6 +117,29 @@ async fn stream_tui_snapshots(mut socket: WebSocket, state: AppState) {
         let Ok(snapshot) = state.tui_snapshot().await else {
             break;
         };
+        if send_payload(&mut socket, &snapshot).await.is_err() {
+            break;
+        }
+    }
+}
+
+/// 持续向客户端发送轻量播放运行时快照。
+///
+/// # 参数
+/// - `socket`：WebSocket 连接
+/// - `state`：应用状态
+///
+/// # 返回值
+/// - 无
+async fn stream_playback_runtime(mut socket: WebSocket, state: AppState) {
+    let mut receiver = state.player.subscribe();
+    let initial_snapshot = state.playback_runtime_snapshot().await;
+    if send_payload(&mut socket, &initial_snapshot).await.is_err() {
+        return;
+    }
+
+    while receiver.changed().await.is_ok() {
+        let snapshot = state.playback_runtime_snapshot().await;
         if send_payload(&mut socket, &snapshot).await.is_err() {
             break;
         }

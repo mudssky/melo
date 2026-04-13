@@ -6,6 +6,8 @@ use std::sync::{
 use tokio::sync::{Mutex, mpsc, watch};
 
 use crate::core::error::{MeloError, MeloResult};
+use crate::core::model::playback_mode::PlaybackMode;
+use crate::core::model::playback_runtime::PlaybackRuntimeSnapshot;
 use crate::core::model::player::{
     NowPlayingSong, PlaybackState, PlayerErrorInfo, PlayerSnapshot, QueueItem, RepeatMode,
 };
@@ -602,6 +604,39 @@ impl PlayerService {
         Self::snapshot_from_session(&session, self.backend_name)
     }
 
+    /// 将当前播放器状态投影为轻量播放运行时快照。
+    ///
+    /// # 参数
+    /// - `current_source_ref`：当前播放来源引用
+    ///
+    /// # 返回值
+    /// - `PlaybackRuntimeSnapshot`：轻量播放运行时快照
+    pub async fn runtime_snapshot(
+        &self,
+        current_source_ref: Option<String>,
+    ) -> PlaybackRuntimeSnapshot {
+        let snapshot = self.snapshot().await;
+        PlaybackRuntimeSnapshot {
+            generation: snapshot.version,
+            playback_state: snapshot.playback_state.clone(),
+            current_source_ref,
+            current_song_id: snapshot.current_song.as_ref().map(|song| song.song_id),
+            current_index: snapshot.queue_index,
+            position_seconds: snapshot.position_seconds,
+            duration_seconds: snapshot
+                .current_song
+                .as_ref()
+                .and_then(|song| song.duration_seconds),
+            playback_mode: Self::runtime_playback_mode(
+                &snapshot.repeat_mode,
+                snapshot.shuffle_enabled,
+            ),
+            volume_percent: snapshot.volume_percent,
+            muted: snapshot.muted,
+            last_error_code: snapshot.last_error.as_ref().map(|error| error.code.clone()),
+        }
+    }
+
     /// 导出当前播放器会话，用于持久化保存。
     ///
     /// # 参数
@@ -967,6 +1002,25 @@ impl PlayerService {
         });
         let _ = self.publish_locked(session)?;
         Err(err)
+    }
+
+    /// 根据旧快照字段推断轻量运行时使用的播放模式。
+    ///
+    /// # 参数
+    /// - `repeat_mode`：旧播放器快照中的循环模式
+    /// - `shuffle_enabled`：旧播放器快照中的随机播放开关
+    ///
+    /// # 返回值
+    /// - `PlaybackMode`：推断出的播放模式
+    fn runtime_playback_mode(repeat_mode: &str, shuffle_enabled: bool) -> PlaybackMode {
+        if shuffle_enabled {
+            PlaybackMode::Shuffle
+        } else {
+            match repeat_mode {
+                "one" => PlaybackMode::RepeatOne,
+                _ => PlaybackMode::Ordered,
+            }
+        }
     }
 }
 

@@ -130,6 +130,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::get(crate::api::ws::player_updates),
         )
         .route(
+            "/api/ws/playback/runtime",
+            axum::routing::get(crate::api::ws::playback_runtime_updates),
+        )
+        .route(
             "/api/ws/tui",
             axum::routing::get(crate::api::ws::tui_updates),
         )

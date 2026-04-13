@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::core::config::settings::Settings;
 use crate::core::error::MeloResult;
+use crate::core::model::playback_runtime::ClientBootstrapSnapshot;
 use crate::domain::library::service::LibraryService;
 use crate::domain::player::backend::{NoopBackend, PlaybackBackend};
 use crate::domain::player::factory;
@@ -468,6 +469,36 @@ impl AppState {
         &self,
     ) -> Option<crate::daemon::playback_context::PlayingPlaylistContext> {
         self.playback_context.current()
+    }
+
+    /// 返回当前轻量播放运行时快照。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `crate::core::model::playback_runtime::PlaybackRuntimeSnapshot`：当前轻量播放运行时快照
+    pub async fn playback_runtime_snapshot(
+        &self,
+    ) -> crate::core::model::playback_runtime::PlaybackRuntimeSnapshot {
+        self.player
+            .runtime_snapshot(self.current_playlist_context().map(|context| context.name))
+            .await
+    }
+
+    /// 返回新客户端初始化所需的 bootstrap 快照。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<ClientBootstrapSnapshot>`：bootstrap 快照
+    pub async fn client_bootstrap(&self) -> MeloResult<ClientBootstrapSnapshot> {
+        Ok(ClientBootstrapSnapshot {
+            runtime: self.playback_runtime_snapshot().await,
+            default_playback_mode: self.settings.player.default_mode,
+            current_source_ref: self.current_playlist_context().map(|context| context.name),
+        })
     }
 
     /// 聚合当前播放器状态和活动运行时任务，供 TUI 等前端一次性消费。
