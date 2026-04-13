@@ -11,8 +11,8 @@ use crate::domain::player::rodio_backend::RodioBackend;
 pub enum BackendChoice {
     /// 使用 `rodio` 后端。
     Rodio,
-    /// 使用 `mpv` 后端。
-    Mpv,
+    /// 使用 `mpv-ipc` 后端。
+    MpvIpc,
 }
 
 /// 根据配置和环境探测结果解析后端选择。
@@ -29,16 +29,19 @@ pub fn resolve_backend_choice(
 ) -> MeloResult<BackendChoice> {
     match settings.backend.as_str() {
         "rodio" => Ok(BackendChoice::Rodio),
-        "mpv" => {
+        "mpv_lib" => Err(MeloError::Message(
+            "mpv_lib_backend_unavailable".to_string(),
+        )),
+        "mpv" | "mpv_ipc" => {
             if mpv_available() {
-                Ok(BackendChoice::Mpv)
+                Ok(BackendChoice::MpvIpc)
             } else {
                 Err(MeloError::Message("mpv_backend_unavailable".to_string()))
             }
         }
         _ => {
             if mpv_available() {
-                Ok(BackendChoice::Mpv)
+                Ok(BackendChoice::MpvIpc)
             } else {
                 Ok(BackendChoice::Rodio)
             }
@@ -56,7 +59,7 @@ pub fn resolve_backend_choice(
 pub fn build_backend(settings: &Settings) -> MeloResult<Arc<dyn PlaybackBackend>> {
     match resolve_backend_choice(&settings.player, || mpv_exists(&settings.player.mpv.path))? {
         BackendChoice::Rodio => Ok(Arc::new(RodioBackend::new()?)),
-        BackendChoice::Mpv => Ok(Arc::new(MpvBackend::new(settings.clone())?)),
+        BackendChoice::MpvIpc => Ok(Arc::new(MpvBackend::new(settings.clone())?)),
     }
 }
 

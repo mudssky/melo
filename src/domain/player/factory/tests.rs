@@ -2,7 +2,7 @@ use crate::core::config::settings::{MpvSettings, PlayerSettings};
 use crate::domain::player::factory::{BackendChoice, resolve_backend_choice};
 
 #[test]
-fn auto_prefers_mpv_when_probe_succeeds() {
+fn auto_prefers_mpv_ipc_when_probe_succeeds() {
     let settings = PlayerSettings {
         backend: "auto".to_string(),
         mpv: MpvSettings {
@@ -14,11 +14,27 @@ fn auto_prefers_mpv_when_probe_succeeds() {
     };
 
     let choice = resolve_backend_choice(&settings, || true).unwrap();
-    assert_eq!(choice, BackendChoice::Mpv);
+    assert_eq!(choice, BackendChoice::MpvIpc);
 }
 
 #[test]
-fn auto_falls_back_to_rodio_when_mpv_missing() {
-    let choice = resolve_backend_choice(&PlayerSettings::default(), || false).unwrap();
-    assert_eq!(choice, BackendChoice::Rodio);
+fn explicit_mpv_alias_maps_to_mpv_ipc() {
+    let settings = PlayerSettings {
+        backend: "mpv".to_string(),
+        ..PlayerSettings::default()
+    };
+
+    let choice = resolve_backend_choice(&settings, || true).unwrap();
+    assert_eq!(choice, BackendChoice::MpvIpc);
+}
+
+#[test]
+fn explicit_mpv_lib_is_reserved_but_unavailable_in_phase_one() {
+    let settings = PlayerSettings {
+        backend: "mpv_lib".to_string(),
+        ..PlayerSettings::default()
+    };
+
+    let err = resolve_backend_choice(&settings, || true).unwrap_err();
+    assert!(err.to_string().contains("mpv_lib_backend_unavailable"));
 }

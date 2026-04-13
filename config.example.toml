@@ -44,7 +44,9 @@ file_path = "logs/daemon.log"
 allow_runtime_level_override = true
 
 [player]
-# 后端选择：`auto`、`rodio`、`mpv`。
+# 后端选择：`auto`、`rodio`、`mpv_ipc`。
+# `mpv` 仍兼容映射到 `mpv_ipc`。
+# `mpv_lib` 为二期保留名，一期不会真正启用。
 backend = "auto"
 # 无恢复会话时的默认音量。
 volume = 100

@@ -51,6 +51,23 @@ cwd_dir = true
 }
 
 #[test]
+fn settings_load_player_backend_variants_for_phase_one() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+[player]
+backend = "mpv_ipc"
+"#,
+    )
+    .unwrap();
+
+    let settings = Settings::load_from_path(&path).unwrap();
+    assert_eq!(settings.player.backend, "mpv_ipc");
+}
+
+#[test]
 fn config_example_toml_parses_successfully() {
     assert!(std::path::Path::new("config.example.toml").exists());
     let settings = Settings::load_from_path("config.example.toml").unwrap();
