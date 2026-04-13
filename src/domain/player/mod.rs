@@ -3,6 +3,7 @@ pub mod factory;
 pub mod mpv_backend;
 pub mod navigation;
 pub mod queue;
+pub mod resolver;
 pub mod rodio_backend;
 pub mod runtime;
 pub mod service;

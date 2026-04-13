@@ -751,6 +751,7 @@ impl PlayerService {
         let navigation = Self::navigation(session);
         PlayerSnapshot {
             backend_name: backend_name.to_string(),
+            backend_notice: None,
             playback_state: session.playback_state.as_str().to_string(),
             queue_preview: session
                 .queue

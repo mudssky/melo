@@ -156,7 +156,7 @@ impl PlaybackBackend for MpvBackend {
     /// # 返回值
     /// - `&'static str`：后端稳定名称
     fn backend_name(&self) -> &'static str {
-        "mpv"
+        "mpv_ipc"
     }
 
     /// 启动一个新的 `mpv` 进程并立即播放目标文件。

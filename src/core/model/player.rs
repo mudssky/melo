@@ -101,6 +101,8 @@ pub struct NowPlayingSong {
 pub struct PlayerSnapshot {
     /// 当前激活的播放后端名称。
     pub backend_name: String,
+    /// 后端自动回退等需要展示给用户的提示信息。
+    pub backend_notice: Option<String>,
     /// 播放状态。
     pub playback_state: String,
     /// 队列标题预览，按当前播放顺序排列。
@@ -144,6 +146,7 @@ impl Default for PlayerSnapshot {
     fn default() -> Self {
         Self {
             backend_name: "unknown".to_string(),
+            backend_notice: None,
             playback_state: PlaybackState::Idle.as_str().to_string(),
             queue_preview: Vec::new(),
             current_song: None,

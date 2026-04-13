@@ -1,40 +1,22 @@
-use crate::core::config::settings::{MpvSettings, PlayerSettings};
-use crate::domain::player::factory::{BackendChoice, resolve_backend_choice};
+use crate::core::config::settings::Settings;
+use crate::domain::player::factory::{BackendChoice, build_backend_for_choice};
 
 #[test]
-fn auto_prefers_mpv_ipc_when_probe_succeeds() {
-    let settings = PlayerSettings {
-        backend: "auto".to_string(),
-        mpv: MpvSettings {
-            path: "mpv".to_string(),
-            ipc_dir: "auto".to_string(),
-            extra_args: Vec::new(),
-        },
-        ..PlayerSettings::default()
-    };
-
-    let choice = resolve_backend_choice(&settings, || true).unwrap();
-    assert_eq!(choice, BackendChoice::MpvIpc);
-}
-
-#[test]
-fn explicit_mpv_alias_maps_to_mpv_ipc() {
-    let settings = PlayerSettings {
-        backend: "mpv".to_string(),
-        ..PlayerSettings::default()
-    };
-
-    let choice = resolve_backend_choice(&settings, || true).unwrap();
-    assert_eq!(choice, BackendChoice::MpvIpc);
-}
-
-#[test]
-fn explicit_mpv_lib_is_reserved_but_unavailable_in_phase_one() {
-    let settings = PlayerSettings {
-        backend: "mpv_lib".to_string(),
-        ..PlayerSettings::default()
-    };
-
-    let err = resolve_backend_choice(&settings, || true).unwrap_err();
+fn build_backend_for_choice_rejects_mpv_lib_until_backend_exists() {
+    let settings = Settings::default();
+    let err = build_backend_for_choice(BackendChoice::MpvLib, &settings)
+        .err()
+        .expect("mpv_lib should still be unavailable in task 1");
     assert!(err.to_string().contains("mpv_lib_backend_unavailable"));
+}
+
+#[test]
+fn build_backend_for_choice_supports_rodio_and_mpv_ipc() {
+    let settings = Settings::default();
+
+    let rodio = build_backend_for_choice(BackendChoice::Rodio, &settings).unwrap();
+    assert_eq!(rodio.backend_name(), "rodio");
+
+    let mpv = build_backend_for_choice(BackendChoice::MpvIpc, &settings).unwrap();
+    assert_eq!(mpv.backend_name(), "mpv_ipc");
 }

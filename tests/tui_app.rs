@@ -12,6 +12,7 @@ async fn tui_updates_player_snapshot_from_ws_messages() {
     let mut app = melo::tui::app::App::new_for_test();
     app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
         backend_name: "noop".into(),
+        backend_notice: None,
         playback_state: "playing".into(),
         queue_preview: vec!["Blue Bird".into()],
         current_song: Some(melo::core::model::player::NowPlayingSong {
@@ -42,6 +43,7 @@ async fn tui_applies_navigation_flags_and_last_error_from_snapshot() {
     let mut app = melo::tui::app::App::new_for_test();
     app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
         backend_name: "noop".into(),
+        backend_notice: None,
         playback_state: "error".into(),
         queue_preview: vec!["One".into(), "Two".into()],
         current_song: None,
@@ -88,6 +90,7 @@ fn playback_label_renders_progress_window() {
     let label =
         melo::tui::ui::playbar::playback_label(&melo::core::model::player::PlayerSnapshot {
             backend_name: "noop".into(),
+            backend_notice: None,
             playback_state: "playing".into(),
             queue_preview: vec!["Blue Bird".into()],
             current_song: Some(melo::core::model::player::NowPlayingSong {
@@ -119,6 +122,7 @@ fn footer_status_includes_volume_and_repeat_mode() {
     let mut app = melo::tui::app::App::new_for_test();
     app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
         backend_name: "noop".into(),
+        backend_notice: None,
         playback_state: "playing".into(),
         queue_preview: vec!["Blue Bird".into(), "Always Online".into()],
         current_song: None,
