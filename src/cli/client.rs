@@ -1,6 +1,7 @@
 use crate::api::response::ApiResponse;
 use crate::api::system::{DaemonStatusResponse, HealthResponse};
 use crate::core::error::{MeloError, MeloResult};
+use crate::core::model::playback_runtime::ClientBootstrapSnapshot;
 use crate::core::model::player::PlayerSnapshot;
 use crate::domain::open::service::OpenResponse;
 
@@ -217,6 +218,18 @@ impl ApiClient {
     /// - `MeloResult<crate::core::model::tui::TuiSnapshot>`：TUI 首页快照
     pub async fn tui_home(&self) -> MeloResult<crate::core::model::tui::TuiSnapshot> {
         let url = format!("{}/api/tui/home", self.base_url);
+        self.send_and_decode(self.client.get(url)).await
+    }
+
+    /// 获取新客户端初始化所需的 bootstrap 快照。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<ClientBootstrapSnapshot>`：bootstrap 快照
+    pub async fn bootstrap(&self) -> MeloResult<ClientBootstrapSnapshot> {
+        let url = format!("{}/api/bootstrap", self.base_url);
         self.send_and_decode(self.client.get(url)).await
     }
 

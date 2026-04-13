@@ -119,3 +119,40 @@ fn status_lines_include_launch_cwd_context() {
 
     assert!(lines.iter().any(|line| line.contains("D:/Music/Aimer")));
 }
+
+#[tokio::test]
+async fn dispatching_next_returns_before_remote_confirmation() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut app = crate::tui::app::App::new_for_test();
+
+    crate::tui::run::enqueue_runtime_command(&mut app, crate::tui::event::ActionId::Next, &tx);
+
+    assert!(app.pending_runtime_action().is_some());
+    assert!(rx.try_recv().is_ok());
+}
+
+#[tokio::test]
+async fn runtime_delta_clears_pending_action_and_refreshes_local_playback_state() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.mark_pending_runtime_action(crate::tui::event::ActionId::Next);
+
+    crate::tui::run::apply_runtime_delta_for_test(
+        &mut app,
+        crate::core::model::playback_runtime::PlaybackRuntimeSnapshot {
+            generation: 9,
+            playback_state: "playing".into(),
+            current_source_ref: Some("Favorites".into()),
+            current_song_id: Some(8),
+            current_index: Some(1),
+            position_seconds: Some(0.0),
+            duration_seconds: Some(180.0),
+            playback_mode: crate::core::model::playback_mode::PlaybackMode::Ordered,
+            volume_percent: 100,
+            muted: false,
+            last_error_code: None,
+        },
+    );
+
+    assert!(app.pending_runtime_action().is_none());
+    assert_eq!(app.current_track_song_id, Some(8));
+}

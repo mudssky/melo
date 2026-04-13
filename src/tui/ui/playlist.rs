@@ -152,8 +152,20 @@ pub fn render_preview_lines(app: &crate::tui::app::App) -> Vec<String> {
         return vec!["暂无歌曲".to_string()];
     }
 
-    preview_row_models(app)
-        .into_iter()
+    let rows = preview_row_models(app);
+    let visible_height = if app.track_viewport.visible_height <= 1 {
+        rows.len().max(1)
+    } else {
+        app.track_viewport.visible_height
+    };
+    let start = app
+        .track_viewport
+        .scroll_top
+        .min(rows.len().saturating_sub(visible_height));
+    let end = (start + visible_height).min(rows.len());
+
+    rows[start..end]
+        .iter()
         .map(|row| {
             let prefix = match (row.is_selected, row.is_current_track) {
                 (true, true) => "> *",
@@ -161,7 +173,10 @@ pub fn render_preview_lines(app: &crate::tui::app::App) -> Vec<String> {
                 (false, true) => " *",
                 (false, false) => "  ",
             };
-            format!("{prefix} {}", row.text)
+            format!(
+                "{prefix} {}",
+                crate::tui::ui::content::render_song_title(&row.text, 24)
+            )
         })
         .collect()
 }

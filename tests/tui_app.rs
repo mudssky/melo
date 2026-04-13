@@ -341,3 +341,66 @@ fn detail_lines_show_lyrics_or_cover_fallback() {
     assert!(lines.iter().any(|line| line.contains("hello")));
     assert!(lines.iter().any(|line| line.contains("unsupported")));
 }
+
+#[test]
+fn app_updates_current_lyric_highlight_from_runtime_position() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.current_track_song_id = Some(7);
+    app.cache_track_content(melo::core::model::track_content::TrackContentSnapshot {
+        song_id: 7,
+        title: "Blue Bird".into(),
+        duration_seconds: Some(212.0),
+        artwork: None,
+        lyrics: vec![
+            melo::core::model::track_content::LyricLine {
+                timestamp_seconds: 1.0,
+                text: "a".into(),
+            },
+            melo::core::model::track_content::LyricLine {
+                timestamp_seconds: 3.0,
+                text: "b".into(),
+            },
+        ],
+        refresh_token: "7-v1".into(),
+    });
+
+    app.apply_runtime_snapshot(
+        melo::core::model::playback_runtime::PlaybackRuntimeSnapshot {
+            generation: 2,
+            playback_state: "playing".into(),
+            current_source_ref: Some("Favorites".into()),
+            current_song_id: Some(7),
+            current_index: Some(0),
+            position_seconds: Some(3.2),
+            duration_seconds: Some(212.0),
+            playback_mode: melo::core::model::playback_mode::PlaybackMode::Ordered,
+            volume_percent: 100,
+            muted: false,
+            last_error_code: None,
+        },
+    );
+
+    assert_eq!(app.current_lyric_index(), Some(1));
+}
+
+#[test]
+fn lyrics_panel_renders_highlight_and_scrollbar() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.load_fake_lyrics_panel_for_test();
+    let lines = melo::tui::ui::details::render_detail_lines(&app);
+
+    assert!(lines.iter().any(|line| line.contains("[current]")));
+    assert!(lines.iter().any(|line| line.contains("│")));
+}
+
+#[test]
+fn playlist_rows_truncate_long_titles_but_keep_selected_row_visible() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.load_fake_track_list_for_test(20);
+    app.select_preview_index(12);
+    app.sync_viewports_for_test(6);
+
+    let rows = melo::tui::ui::playlist::render_preview_lines(&app);
+    assert!(rows.len() >= 6);
+    assert!(rows.iter().any(|line| line.contains("…")));
+}

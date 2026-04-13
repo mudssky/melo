@@ -23,7 +23,7 @@ pub async fn home(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<crate::core::model::tui::TuiSnapshot>>, ApiError> {
     state
-        .tui_snapshot()
+        .legacy_tui_snapshot()
         .await
         .map(ApiResponse::ok)
         .map(Json)

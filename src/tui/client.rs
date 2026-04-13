@@ -5,6 +5,7 @@ use crate::core::model::tui::TuiSnapshot;
 #[derive(Clone)]
 pub struct TuiClient {
     ws_client: crate::tui::ws_client::WsClient,
+    runtime_ws_client: crate::tui::ws_client::WsClient,
 }
 
 impl TuiClient {
@@ -24,8 +25,10 @@ impl TuiClient {
             base_url
         };
         let ws_url = format!("{}/api/ws/tui", ws_base.trim_end_matches('/'));
+        let runtime_ws_url = format!("{}/api/ws/playback/runtime", ws_base.trim_end_matches('/'));
         Self {
             ws_client: crate::tui::ws_client::WsClient::new(ws_url),
+            runtime_ws_client: crate::tui::ws_client::WsClient::new(runtime_ws_url),
         }
     }
 
@@ -50,5 +53,30 @@ impl TuiClient {
     pub async fn next_snapshot(&self) -> MeloResult<TuiSnapshot> {
         let mut stream = self.connect().await?;
         stream.next_json::<TuiSnapshot>().await
+    }
+
+    /// 获取新客户端初始化所需的 bootstrap 快照。
+    ///
+    /// # 参数
+    /// - `api_client`：HTTP API 客户端
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::core::model::playback_runtime::ClientBootstrapSnapshot>`：bootstrap 快照
+    pub async fn bootstrap(
+        &self,
+        api_client: &crate::cli::client::ApiClient,
+    ) -> MeloResult<crate::core::model::playback_runtime::ClientBootstrapSnapshot> {
+        api_client.bootstrap().await
+    }
+
+    /// 连接到轻量播放运行时快照流。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::tui::ws_client::WsSnapshotStream>`：轻量运行时快照流
+    pub async fn runtime_connect(&self) -> MeloResult<crate::tui::ws_client::WsSnapshotStream> {
+        self.runtime_ws_client.connect().await
     }
 }

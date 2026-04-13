@@ -14,6 +14,48 @@ use crate::core::error::{MeloError, MeloResult};
 
 const PAGE_STEP: isize = 10;
 
+pub(crate) enum RuntimeCommand {
+    TogglePlayback,
+    Next,
+    Prev,
+}
+
+impl RuntimeCommand {
+    /// 从稳定动作标识构造运行时命令。
+    ///
+    /// # 参数
+    /// - `action`：稳定动作标识
+    ///
+    /// # 返回值
+    /// - `Option<Self>`：可映射时返回对应运行时命令
+    fn from_action(action: crate::tui::event::ActionId) -> Option<Self> {
+        match action {
+            crate::tui::event::ActionId::TogglePlayback => Some(Self::TogglePlayback),
+            crate::tui::event::ActionId::Next => Some(Self::Next),
+            crate::tui::event::ActionId::Prev => Some(Self::Prev),
+            _ => None,
+        }
+    }
+
+    /// 执行一个后台运行时命令。
+    ///
+    /// # 参数
+    /// - `api_client`：daemon API 客户端
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::core::model::player::PlayerSnapshot>`：命令执行后的播放器快照
+    async fn execute(
+        self,
+        api_client: &crate::cli::client::ApiClient,
+    ) -> MeloResult<crate::core::model::player::PlayerSnapshot> {
+        match self {
+            Self::TogglePlayback => api_client.post_json("/api/player/toggle").await,
+            Self::Next => api_client.post_json("/api/player/next").await,
+            Self::Prev => api_client.post_json("/api/player/prev").await,
+        }
+    }
+}
+
 /// TUI 启动时需要带入的上下文。
 pub struct LaunchContext {
     /// 调用方 shell 的当前目录。
@@ -60,6 +102,58 @@ pub(crate) fn next_repeat_mode(current: &str) -> &'static str {
         "all" => "one",
         _ => "off",
     }
+}
+
+/// 将一个运行时动作放入后台执行队列。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+/// - `action`：待执行动作
+/// - `tx`：后台运行时命令发送器
+///
+/// # 返回值
+/// - 无
+pub(crate) fn enqueue_runtime_command(
+    app: &mut crate::tui::app::App,
+    action: crate::tui::event::ActionId,
+    tx: &tokio::sync::mpsc::UnboundedSender<RuntimeCommand>,
+) {
+    if let Some(command) = RuntimeCommand::from_action(action) {
+        app.mark_pending_runtime_action(action);
+        let _ = tx.send(command);
+    }
+}
+
+/// 应用一份新的轻量运行时快照，并清理待确认动作。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+/// - `runtime`：新的轻量运行时快照
+///
+/// # 返回值
+/// - 无
+fn apply_runtime_delta(
+    app: &mut crate::tui::app::App,
+    runtime: crate::core::model::playback_runtime::PlaybackRuntimeSnapshot,
+) {
+    app.clear_pending_runtime_action();
+    app.apply_runtime_snapshot(runtime);
+}
+
+/// 对测试暴露的运行时快照应用助手。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+/// - `runtime`：新的轻量运行时快照
+///
+/// # 返回值
+/// - 无
+#[cfg(test)]
+pub(crate) fn apply_runtime_delta_for_test(
+    app: &mut crate::tui::app::App,
+    runtime: crate::core::model::playback_runtime::PlaybackRuntimeSnapshot,
+) {
+    apply_runtime_delta(app, runtime);
 }
 
 /// 判断当前播放状态在退出 TUI 前是否需要显式停播。
@@ -194,6 +288,8 @@ async fn run_loop(
     let api_client = crate::cli::client::ApiClient::new(base_url.clone());
     let client = crate::tui::client::TuiClient::new(base_url);
     let mut app = crate::tui::app::App::new_for_test();
+    let bootstrap = client.bootstrap(&api_client).await?;
+    app.apply_runtime_snapshot(bootstrap.runtime);
     let home = api_client.tui_home().await?;
     apply_tui_snapshot(&mut app, home);
     if let Some(selected) = app.selected_playlist_name().map(ToString::to_string) {
@@ -213,7 +309,13 @@ async fn run_loop(
     }
 
     let mut stream = client.connect().await?;
+    let mut runtime_stream = client.runtime_connect().await?;
     let (snapshot_tx, mut snapshot_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (runtime_tx, mut runtime_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (command_tx, mut command_rx) = tokio::sync::mpsc::unbounded_channel::<RuntimeCommand>();
+    let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel::<
+        MeloResult<crate::core::model::player::PlayerSnapshot>,
+    >();
     tokio::spawn(async move {
         while let Ok(snapshot) = stream
             .next_json::<crate::core::model::tui::TuiSnapshot>()
@@ -224,10 +326,46 @@ async fn run_loop(
             }
         }
     });
+    tokio::spawn(async move {
+        while let Ok(runtime) = runtime_stream
+            .next_json::<crate::core::model::playback_runtime::PlaybackRuntimeSnapshot>()
+            .await
+        {
+            if runtime_tx.send(runtime).is_err() {
+                break;
+            }
+        }
+    });
+    tokio::spawn({
+        let api_client = api_client.clone();
+        async move {
+            while let Some(command) = command_rx.recv().await {
+                let result = command.execute(&api_client).await;
+                if result_tx.send(result).is_err() {
+                    break;
+                }
+            }
+        }
+    });
 
     loop {
         while let Ok(snapshot) = snapshot_rx.try_recv() {
             apply_tui_snapshot(&mut app, snapshot);
+        }
+        while let Ok(runtime) = runtime_rx.try_recv() {
+            apply_runtime_delta(&mut app, runtime);
+        }
+        while let Ok(result) = result_rx.try_recv() {
+            app.clear_pending_runtime_action();
+            match result {
+                Ok(snapshot) => app.apply_snapshot(snapshot),
+                Err(err) => {
+                    app.player.last_error = Some(crate::core::model::player::PlayerErrorInfo {
+                        code: "runtime_command_failed".to_string(),
+                        message: err.to_string(),
+                    });
+                }
+            }
         }
 
         terminal
@@ -314,7 +452,8 @@ async fn run_loop(
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     match keymap.resolve_key(key, std::time::Instant::now()) {
                         crate::tui::keymap::Resolution::Matched(action) => {
-                            if handle_key_action(&mut app, action, &api_client).await? {
+                            if handle_key_action(&mut app, action, &api_client, &command_tx).await?
+                            {
                                 break;
                             }
                         }
@@ -415,6 +554,7 @@ async fn handle_key_action(
     app: &mut crate::tui::app::App,
     action: crate::tui::event::ActionId,
     api_client: &crate::cli::client::ApiClient,
+    command_tx: &tokio::sync::mpsc::UnboundedSender<RuntimeCommand>,
 ) -> MeloResult<bool> {
     if app.show_help
         && !matches!(
@@ -527,15 +667,18 @@ async fn handle_key_action(
             }
             Ok(false)
         }
-        crate::tui::event::ActionId::TogglePlayback
-        | crate::tui::event::ActionId::Next
-        | crate::tui::event::ActionId::Prev
-        | crate::tui::event::ActionId::CycleRepeatMode
+        crate::tui::event::ActionId::CycleRepeatMode
         | crate::tui::event::ActionId::ToggleShuffle
         | crate::tui::event::ActionId::LoadPreview
         | crate::tui::event::ActionId::PlaySelection
         | crate::tui::event::ActionId::PlayPreviewSelection => {
             dispatch_intent(app, crate::tui::event::Intent::Action(action), api_client).await?;
+            Ok(false)
+        }
+        crate::tui::event::ActionId::Next
+        | crate::tui::event::ActionId::Prev
+        | crate::tui::event::ActionId::TogglePlayback => {
+            enqueue_runtime_command(app, action, command_tx);
             Ok(false)
         }
     }

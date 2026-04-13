@@ -501,6 +501,17 @@ impl AppState {
         })
     }
 
+    /// 返回兼容旧版 TUI 的聚合快照。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::core::model::tui::TuiSnapshot>`：旧版 TUI 聚合快照
+    pub async fn legacy_tui_snapshot(&self) -> MeloResult<crate::core::model::tui::TuiSnapshot> {
+        self.tui_snapshot().await
+    }
+
     /// 聚合当前播放器状态和活动运行时任务，供 TUI 等前端一次性消费。
     ///
     /// # 参数

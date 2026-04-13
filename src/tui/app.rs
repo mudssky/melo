@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::time::Duration;
+
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 
@@ -30,6 +33,8 @@ pub struct PreviewSongRow {
 pub struct App {
     /// 当前播放器快照。
     pub player: PlayerSnapshot,
+    /// 当前轻量播放运行时快照。
+    pub runtime: crate::core::model::playback_runtime::PlaybackRuntimeSnapshot,
     /// 当前活动运行时任务。
     pub active_task: Option<crate::core::model::runtime_task::RuntimeTaskSnapshot>,
     /// 当前激活视图。
@@ -48,6 +53,14 @@ pub struct App {
     pub show_help: bool,
     /// 当前歌单浏览快照。
     pub playlist_browser: crate::core::model::tui::PlaylistBrowserSnapshot,
+    /// 左侧来源列表视口状态。
+    pub source_viewport: crate::tui::viewports::ViewportState,
+    /// 中部曲目列表视口状态。
+    pub track_viewport: crate::tui::viewports::ViewportState,
+    /// 歌词列表视口状态。
+    pub lyric_viewport: crate::tui::viewports::ViewportState,
+    /// 歌词自动跟随状态。
+    pub lyric_follow_state: crate::tui::lyrics::LyricFollowState,
     /// 左侧歌单列表的状态。
     pub playlist_state: ListState,
     /// 右侧预览列表的状态。
@@ -74,6 +87,10 @@ pub struct App {
     pub current_track_lyrics: Option<String>,
     /// 当前播放曲目的封面摘要。
     pub current_track_cover_summary: Option<String>,
+    /// 曲目低频内容缓存。
+    pub track_content_cache: BTreeMap<i64, crate::core::model::track_content::TrackContentSnapshot>,
+    /// 当前等待远端确认的运行时动作。
+    pending_runtime_action: Option<crate::tui::event::ActionId>,
 }
 
 impl App {
@@ -87,6 +104,19 @@ impl App {
     pub fn new_for_test() -> Self {
         Self {
             player: PlayerSnapshot::default(),
+            runtime: crate::core::model::playback_runtime::PlaybackRuntimeSnapshot {
+                generation: 0,
+                playback_state: "idle".to_string(),
+                current_source_ref: None,
+                current_song_id: None,
+                current_index: None,
+                position_seconds: None,
+                duration_seconds: None,
+                playback_mode: crate::core::model::playback_mode::PlaybackMode::Ordered,
+                volume_percent: 100,
+                muted: false,
+                last_error_code: None,
+            },
             active_task: None,
             active_view: ActiveView::Playlist,
             focus: FocusArea::PlaylistList,
@@ -96,6 +126,10 @@ impl App {
             footer_hints_enabled: true,
             show_help: false,
             playlist_browser: crate::core::model::tui::PlaylistBrowserSnapshot::default(),
+            source_viewport: crate::tui::viewports::ViewportState::new(1),
+            track_viewport: crate::tui::viewports::ViewportState::new(1),
+            lyric_viewport: crate::tui::viewports::ViewportState::new(1),
+            lyric_follow_state: crate::tui::lyrics::LyricFollowState::new(Duration::from_secs(3)),
             playlist_state: ListState::default(),
             preview_state: ListState::default(),
             selected_playlist_name: None,
@@ -109,6 +143,8 @@ impl App {
             current_track_song_id: None,
             current_track_lyrics: None,
             current_track_cover_summary: None,
+            track_content_cache: BTreeMap::new(),
+            pending_runtime_action: None,
         }
     }
 
@@ -286,9 +322,189 @@ impl App {
     /// # 返回值
     /// - 无
     pub fn apply_snapshot(&mut self, snapshot: PlayerSnapshot) {
-        self.current_track_song_id = snapshot.current_song.as_ref().map(|song| song.song_id);
+        let current_song = snapshot.current_song.clone();
+        self.current_track_song_id = current_song.as_ref().map(|song| song.song_id);
         self.queue_titles = snapshot.queue_preview.clone();
+        self.runtime.generation = snapshot.version;
+        self.runtime.playback_state = snapshot.playback_state.clone();
+        self.runtime.current_song_id = current_song.as_ref().map(|song| song.song_id);
+        self.runtime.current_index = snapshot.queue_index;
+        self.runtime.position_seconds = snapshot.position_seconds;
+        self.runtime.duration_seconds = current_song.and_then(|song| song.duration_seconds);
+        self.runtime.playback_mode = if snapshot.shuffle_enabled {
+            crate::core::model::playback_mode::PlaybackMode::Shuffle
+        } else if snapshot.repeat_mode == "one" {
+            crate::core::model::playback_mode::PlaybackMode::RepeatOne
+        } else {
+            crate::core::model::playback_mode::PlaybackMode::Ordered
+        };
+        self.runtime.volume_percent = snapshot.volume_percent;
+        self.runtime.muted = snapshot.muted;
+        self.runtime.last_error_code = snapshot.last_error.as_ref().map(|error| error.code.clone());
         self.player = snapshot;
+    }
+
+    /// 缓存一份曲目低频内容快照。
+    ///
+    /// # 参数
+    /// - `content`：待缓存的曲目内容
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn cache_track_content(
+        &mut self,
+        content: crate::core::model::track_content::TrackContentSnapshot,
+    ) {
+        self.track_content_cache.insert(content.song_id, content);
+    }
+
+    /// 应用一份新的轻量播放运行时快照。
+    ///
+    /// # 参数
+    /// - `runtime`：新的轻量播放运行时快照
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn apply_runtime_snapshot(
+        &mut self,
+        runtime: crate::core::model::playback_runtime::PlaybackRuntimeSnapshot,
+    ) {
+        self.current_track_song_id = runtime.current_song_id;
+        self.runtime = runtime;
+    }
+
+    /// 返回当前应高亮的歌词行索引。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `Option<usize>`：命中时返回歌词行索引
+    pub fn current_lyric_index(&self) -> Option<usize> {
+        let song_id = self.current_track_song_id?;
+        let content = self.track_content_cache.get(&song_id)?;
+        let position = self.runtime.position_seconds?;
+        content.current_lyric_index(position)
+    }
+
+    /// 标记当前存在一个等待远端确认的运行时动作。
+    ///
+    /// # 参数
+    /// - `action`：等待确认的动作
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn mark_pending_runtime_action(&mut self, action: crate::tui::event::ActionId) {
+        self.pending_runtime_action = Some(action);
+    }
+
+    /// 清除当前等待确认的运行时动作。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn clear_pending_runtime_action(&mut self) {
+        self.pending_runtime_action = None;
+    }
+
+    /// 返回当前等待确认的运行时动作。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `Option<crate::tui::event::ActionId>`：当前等待确认的动作
+    pub fn pending_runtime_action(&self) -> Option<crate::tui::event::ActionId> {
+        self.pending_runtime_action
+    }
+
+    /// 为测试填充一组带当前高亮行的歌词面板数据。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn load_fake_lyrics_panel_for_test(&mut self) {
+        self.current_track_song_id = Some(7);
+        self.lyric_viewport.visible_height = 4;
+        self.cache_track_content(crate::core::model::track_content::TrackContentSnapshot {
+            song_id: 7,
+            title: "Blue Bird".to_string(),
+            duration_seconds: Some(212.0),
+            artwork: None,
+            lyrics: vec![
+                crate::core::model::track_content::LyricLine {
+                    timestamp_seconds: 0.0,
+                    text: "line 0".to_string(),
+                },
+                crate::core::model::track_content::LyricLine {
+                    timestamp_seconds: 1.0,
+                    text: "line 1".to_string(),
+                },
+                crate::core::model::track_content::LyricLine {
+                    timestamp_seconds: 2.0,
+                    text: "line 2".to_string(),
+                },
+                crate::core::model::track_content::LyricLine {
+                    timestamp_seconds: 3.0,
+                    text: "line 3".to_string(),
+                },
+            ],
+            refresh_token: "fake-lyrics".to_string(),
+        });
+        self.apply_runtime_snapshot(
+            crate::core::model::playback_runtime::PlaybackRuntimeSnapshot {
+                generation: 1,
+                playback_state: "playing".to_string(),
+                current_source_ref: Some("Favorites".to_string()),
+                current_song_id: Some(7),
+                current_index: Some(0),
+                position_seconds: Some(2.1),
+                duration_seconds: Some(212.0),
+                playback_mode: crate::core::model::playback_mode::PlaybackMode::Ordered,
+                volume_percent: 100,
+                muted: false,
+                last_error_code: None,
+            },
+        );
+    }
+
+    /// 为测试填充一组较长标题的曲目预览列表。
+    ///
+    /// # 参数
+    /// - `count`：要生成的预览条目数量
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn load_fake_track_list_for_test(&mut self, count: usize) {
+        self.preview_songs = (0..count)
+            .map(|index| PreviewSongRow {
+                song_id: index as i64 + 1,
+                title: format!("A very long preview title number {index} for truncation"),
+            })
+            .collect();
+        self.preview_titles = self
+            .preview_songs
+            .iter()
+            .map(|song| song.title.clone())
+            .collect();
+        self.track_viewport.scroll_top = 0;
+    }
+
+    /// 为测试同步预览列表视口。
+    ///
+    /// # 参数
+    /// - `visible_height`：可见高度
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn sync_viewports_for_test(&mut self, visible_height: usize) {
+        self.track_viewport.visible_height = visible_height;
+        self.track_viewport
+            .follow_selection(self.selected_preview_index, self.preview_titles.len());
     }
 
     /// 用 TUI 聚合快照刷新本地状态。

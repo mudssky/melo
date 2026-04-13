@@ -850,3 +850,25 @@ async fn playback_runtime_ws_streams_lightweight_updates() {
     assert!(initial.get("lyrics").is_none());
     assert!(initial.get("visible_playlists").is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn runtime_snapshot_does_not_recompute_lyrics_or_playlist_browser() {
+    let state = melo::daemon::app::AppState::for_test().await;
+    state
+        .player
+        .append(melo::core::model::player::QueueItem {
+            song_id: 1,
+            path: "tests/fixtures/full_test.mp3".into(),
+            title: "Blue Bird".into(),
+            duration_seconds: Some(212.0),
+        })
+        .await
+        .unwrap();
+
+    let before = state.client_bootstrap().await.unwrap();
+    state.player.play().await.unwrap();
+    let after = state.playback_runtime_snapshot().await;
+
+    assert_eq!(before.current_source_ref, after.current_source_ref);
+    assert!(after.current_song_id.is_some());
+}
