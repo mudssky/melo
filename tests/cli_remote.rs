@@ -1,5 +1,6 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::process::Stdio;
 use tokio::net::TcpListener;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -707,4 +708,111 @@ async fn daemon_status_without_registration_returns_not_running_summary() {
 fn launch_cwd_text_is_public_for_quit_boundary_regressions() {
     let text = melo::cli::run::launch_cwd_text(std::path::Path::new("D:/Music/Aimer"));
     assert_eq!(text, "D:/Music/Aimer");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn default_launch_open_request_keeps_real_daemon_healthy_with_libmpv() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+    let config_path = temp.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[database]
+path = "cli-remote.db"
+
+[daemon]
+host = "127.0.0.1"
+base_port = 38640
+port_search_limit = 0
+docs = "disabled"
+
+[player]
+backend = "auto"
+
+[open]
+scan_current_dir = true
+max_depth = 2
+prewarm_limit = 20
+background_jobs = 4
+"#,
+    )
+    .unwrap();
+
+    let daemon_log = temp.path().join("daemon-stderr.log");
+    let daemon_out = temp.path().join("daemon-stdout.log");
+    let mut daemon = std::process::Command::new(assert_cmd::cargo::cargo_bin("melo"))
+        .env("MELO_CONFIG_PATH", &config_path)
+        .env("MELO_DAEMON_STATE_FILE", &state_file)
+        .arg("daemon")
+        .arg("run")
+        .stdout(std::fs::File::create(&daemon_out).map(Stdio::from).unwrap())
+        .stderr(std::fs::File::create(&daemon_log).map(Stdio::from).unwrap())
+        .spawn()
+        .unwrap();
+
+    let mut base_url = None;
+    for _ in 0..40 {
+        if let Ok(json) = std::fs::read_to_string(&state_file)
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(&json)
+            && let Some(url) = value.get("base_url").and_then(|item| item.as_str())
+        {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_millis(500))
+                .build()
+                .unwrap();
+            if client
+                .get(format!("{url}/api/system/health"))
+                .send()
+                .await
+                .ok()
+                .is_some_and(|response| response.status().is_success())
+            {
+                base_url = Some(url.to_string());
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    }
+
+    let base_url = base_url.expect("daemon should become healthy before open");
+    let open_response = reqwest::Client::new()
+        .post(format!("{base_url}/api/open"))
+        .json(&serde_json::json!({
+            "target": std::env::current_dir().unwrap().to_string_lossy().to_string(),
+            "mode": "cwd_dir"
+        }))
+        .send()
+        .await;
+
+    let health_after_open = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(500))
+        .build()
+        .unwrap()
+        .get(format!("{base_url}/api/system/health"))
+        .send()
+        .await;
+
+    let _ = reqwest::Client::new()
+        .post(format!("{base_url}/api/system/shutdown"))
+        .send()
+        .await;
+    let _ = daemon.kill();
+    let _ = daemon.wait();
+
+    assert!(
+        open_response
+            .as_ref()
+            .ok()
+            .is_some_and(|response| response.status().is_success()),
+        "open request should succeed, stderr: {}",
+        std::fs::read_to_string(&daemon_log).unwrap_or_default()
+    );
+    assert!(
+        health_after_open
+            .ok()
+            .is_some_and(|response| response.status().is_success()),
+        "daemon should stay healthy after open, stderr: {}",
+        std::fs::read_to_string(&daemon_log).unwrap_or_default()
+    );
 }

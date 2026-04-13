@@ -81,6 +81,19 @@ fn should_stop_on_tui_exit_for_active_sessions_only() {
 }
 
 #[test]
+fn interactive_terminal_guard_accepts_real_terminal_shape() {
+    let result = crate::tui::run::ensure_interactive_terminal(true, true);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn interactive_terminal_guard_rejects_non_interactive_stdio_with_hint() {
+    let err = crate::tui::run::ensure_interactive_terminal(false, true).unwrap_err();
+    assert!(err.to_string().contains("interactive terminal"));
+    assert!(err.to_string().contains("melo status"));
+}
+
+#[test]
 fn hit_test_mouse_target_maps_sidebar_row_to_playlist_item() {
     let mut app = crate::tui::app::App::new_for_test();
     app.apply_tui_snapshot(crate::core::model::tui::TuiSnapshot {

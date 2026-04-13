@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::io::{self, Stdout};
 use std::time::Duration;
 
@@ -23,6 +24,27 @@ pub struct LaunchContext {
     pub startup_notice: Option<String>,
     /// 是否显示底部快捷键提示。
     pub footer_hints_enabled: bool,
+}
+
+/// 确认当前进程具备启动交互式 TUI 的终端条件。
+///
+/// # 参数
+/// - `stdin_is_terminal`：标准输入是否连接到终端
+/// - `stdout_is_terminal`：标准输出是否连接到终端
+///
+/// # 返回值
+/// - `MeloResult<()>`：满足条件时返回 `Ok(())`
+pub(crate) fn ensure_interactive_terminal(
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+) -> MeloResult<()> {
+    if stdin_is_terminal && stdout_is_terminal {
+        return Ok(());
+    }
+
+    Err(MeloError::Message(
+        "interactive terminal required for TUI; run `melo`/`melo tui` in a real terminal, or use `melo status`".to_string(),
+    ))
 }
 
 /// 计算下一个循环模式。
@@ -114,6 +136,10 @@ fn apply_tui_snapshot(
 /// # 返回值
 /// - `MeloResult<()>`：运行结果
 pub async fn start(base_url: String, context: LaunchContext) -> MeloResult<()> {
+    ensure_interactive_terminal(
+        std::io::stdin().is_terminal(),
+        std::io::stdout().is_terminal(),
+    )?;
     let settings = crate::core::config::settings::Settings::load().unwrap_or_default();
     let mouse_enabled = settings.tui.mouse_enabled;
 
