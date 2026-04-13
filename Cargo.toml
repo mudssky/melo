@@ -70,6 +70,7 @@ tower-http = { version = "0.6.8", features = ["cors", "trace"] }
 unicode-width = "0.2.2"
 utoipa = { version = "5.4.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+viuer = "0.10.0"
 
 [profile.dev]
 debug = true

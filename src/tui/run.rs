@@ -69,6 +69,42 @@ async fn stop_playback_before_exit(
     Ok(())
 }
 
+/// 基于当前曲目快照生成封面摘要。
+///
+/// # 参数
+/// - `current_track`：当前曲目聚合快照
+///
+/// # 返回值
+/// - `String`：当前终端可显示的封面摘要
+fn current_track_cover_summary(
+    current_track: &crate::core::model::tui::CurrentTrackSnapshot,
+) -> String {
+    crate::tui::cover::cover_fallback_summary(
+        crate::tui::cover::detect_cover_protocol_from_env(&std::env::vars().collect::<Vec<_>>()),
+        current_track
+            .artwork
+            .as_ref()
+            .and_then(|artwork| artwork.source_path.as_deref()),
+    )
+}
+
+/// 将聚合快照写入本地 App 状态，并同步补齐封面摘要。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+/// - `snapshot`：新的 TUI 聚合快照
+///
+/// # 返回值
+/// - 无
+fn apply_tui_snapshot(
+    app: &mut crate::tui::app::App,
+    snapshot: crate::core::model::tui::TuiSnapshot,
+) {
+    let cover_summary = current_track_cover_summary(&snapshot.current_track);
+    app.apply_tui_snapshot(snapshot);
+    app.current_track_cover_summary = Some(cover_summary);
+}
+
 /// 启动真实的 TUI 运行循环。
 ///
 /// # 参数
@@ -133,7 +169,7 @@ async fn run_loop(
     let client = crate::tui::client::TuiClient::new(base_url);
     let mut app = crate::tui::app::App::new_for_test();
     let home = api_client.tui_home().await?;
-    app.apply_tui_snapshot(home);
+    apply_tui_snapshot(&mut app, home);
     if let Some(selected) = app.selected_playlist_name().map(ToString::to_string) {
         app.set_playlist_preview_loading();
         match api_client.playlist_preview(&selected).await {
@@ -165,13 +201,14 @@ async fn run_loop(
 
     loop {
         while let Ok(snapshot) = snapshot_rx.try_recv() {
-            app.apply_tui_snapshot(snapshot);
+            apply_tui_snapshot(&mut app, snapshot);
         }
 
         terminal
             .draw(|frame| {
                 let layout = app.layout(frame.area());
                 let status_lines = crate::tui::ui::playlist::render_status_lines(&app).join("\n");
+                let detail_lines = crate::tui::ui::details::render_detail_lines(&app).join("\n");
                 let preview_lines = crate::tui::ui::playlist::render_preview_lines(&app).join("\n");
                 let preview_border_style =
                     if app.focus == crate::tui::app::FocusArea::PlaylistPreview {
@@ -206,10 +243,19 @@ async fn run_loop(
                     Paragraph::new(preview_lines).block(
                         Block::default()
                             .borders(Borders::ALL)
-                            .title("歌单预览")
+                            .title("当前歌单")
                             .border_style(preview_border_style),
                     ),
-                    layout.content_body,
+                    layout.content_tracks,
+                );
+                frame.render_widget(
+                    Paragraph::new(detail_lines).block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("歌词 / 封面")
+                            .border_style(theme.pane_border),
+                    ),
+                    layout.content_detail,
                 );
                 frame.render_widget(
                     Paragraph::new(format!(
@@ -589,7 +635,7 @@ async fn dispatch_intent(
             crate::tui::event::Intent::Action(crate::tui::event::ActionId::PlaySelection) => {
                 if let Some(name) = app.selected_playlist_name().map(ToString::to_string) {
                     let snapshot = api_client.playlist_play(&name, 0).await?;
-                    app.apply_tui_snapshot(snapshot);
+                    apply_tui_snapshot(app, snapshot);
                 }
             }
             crate::tui::event::Intent::Action(
@@ -599,7 +645,7 @@ async fn dispatch_intent(
                     let snapshot = api_client
                         .playlist_play(&name, app.selected_preview_index())
                         .await?;
-                    app.apply_tui_snapshot(snapshot);
+                    apply_tui_snapshot(app, snapshot);
                 }
             }
             crate::tui::event::Intent::Action(crate::tui::event::ActionId::TogglePlayback) => {
@@ -670,9 +716,9 @@ fn hit_test_mouse_target(
         return crate::tui::mouse::MouseTarget::PlaylistRow(index);
     }
 
-    if rect_contains(layout.content_body, column, row)
+    if rect_contains(layout.content_tracks, column, row)
         && let Some(index) = crate::tui::ui::playlist::preview_index_at(
-            layout.content_body,
+            layout.content_tracks,
             row,
             app.preview_titles.len(),
         )

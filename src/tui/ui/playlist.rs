@@ -6,6 +6,14 @@ pub struct PlaylistRowModel {
     pub is_current_source: bool,
 }
 
+/// 右侧歌单预览的单行展示模型。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewRowModel {
+    pub text: String,
+    pub is_selected: bool,
+    pub is_current_track: bool,
+}
+
 /// 构造歌单列表的行模型。
 ///
 /// # 参数
@@ -144,15 +152,35 @@ pub fn render_preview_lines(app: &crate::tui::app::App) -> Vec<String> {
         return vec!["暂无歌曲".to_string()];
     }
 
-    app.preview_titles
+    preview_row_models(app)
+        .into_iter()
+        .map(|row| {
+            let prefix = match (row.is_selected, row.is_current_track) {
+                (true, true) => "> *",
+                (true, false) => ">",
+                (false, true) => " *",
+                (false, false) => "  ",
+            };
+            format!("{prefix} {}", row.text)
+        })
+        .collect()
+}
+
+/// 构造歌单预览的行模型。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+///
+/// # 返回值
+/// - `Vec<PreviewRowModel>`：带当前曲目标记的预览行
+pub fn preview_row_models(app: &crate::tui::app::App) -> Vec<PreviewRowModel> {
+    app.preview_songs
         .iter()
         .enumerate()
-        .map(|(index, title)| {
-            if index == app.selected_preview_index {
-                format!("> {title}")
-            } else {
-                format!("  {title}")
-            }
+        .map(|(index, song)| PreviewRowModel {
+            text: song.title.clone(),
+            is_selected: index == app.selected_preview_index(),
+            is_current_track: app.current_track_song_id == Some(song.song_id),
         })
         .collect()
 }

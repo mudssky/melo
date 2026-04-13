@@ -104,6 +104,48 @@ fn selecting_playlist_index_updates_highlight_without_playing() {
 }
 
 #[test]
+fn app_sets_preview_row_current_track_by_song_id() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.apply_tui_snapshot(crate::core::model::tui::TuiSnapshot {
+        player: crate::core::model::player::PlayerSnapshot {
+            current_song: Some(crate::core::model::player::NowPlayingSong {
+                song_id: 2,
+                title: "Aimer".into(),
+                duration_seconds: Some(180.0),
+            }),
+            queue_index: Some(1),
+            ..crate::core::model::player::PlayerSnapshot::default()
+        },
+        active_task: None,
+        playlist_browser: browser_snapshot(),
+        current_track: crate::core::model::tui::CurrentTrackSnapshot {
+            song_id: Some(2),
+            title: Some("Aimer".into()),
+            lyrics: Some("[00:00.00]hello".into()),
+            lyrics_source_kind: Some("sidecar".into()),
+            artwork: None,
+        },
+    });
+    app.set_playlist_preview(&crate::api::playlist::PlaylistPreviewResponse {
+        name: "Favorites".into(),
+        songs: vec![
+            crate::api::playlist::PlaylistPreviewSong {
+                id: 1,
+                title: "One".into(),
+            },
+            crate::api::playlist::PlaylistPreviewSong {
+                id: 2,
+                title: "Aimer".into(),
+            },
+        ],
+    });
+
+    let rows = crate::tui::ui::playlist::preview_row_models(&app);
+    assert!(!rows[0].is_current_track);
+    assert!(rows[1].is_current_track);
+}
+
+#[test]
 fn esc_returns_focus_to_playlist_list() {
     let mut app = crate::tui::app::App::new_for_test();
     app.focus = crate::tui::app::FocusArea::PlaylistPreview;

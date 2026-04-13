@@ -9,6 +9,10 @@ pub struct AppLayout {
     pub sidebar: Rect,
     /// 右侧顶部状态区域。
     pub content_header: Rect,
+    /// 右侧曲目列表区域。
+    pub content_tracks: Rect,
+    /// 右侧详情区域。
+    pub content_detail: Rect,
     /// 右侧主体区域。
     pub content_body: Rect,
     /// 兼容旧渲染逻辑的主内容区域。
@@ -52,11 +56,17 @@ pub fn split(area: Rect, show_task_bar: bool) -> AppLayout {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(6), Constraint::Min(0)])
         .split(horizontal[1]);
+    let lower = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(right[1]);
 
     AppLayout {
         task_bar: show_task_bar.then_some(vertical[0]),
         sidebar: horizontal[0],
         content_header: right[0],
+        content_tracks: lower[0],
+        content_detail: lower[1],
         content_body: right[1],
         content: right[1],
         playbar: *vertical.last().unwrap(),

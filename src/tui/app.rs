@@ -18,6 +18,14 @@ pub enum FocusArea {
     PlaylistPreview,
 }
 
+/// 歌单预览区域的歌曲行。
+pub struct PreviewSongRow {
+    /// 预览歌曲 ID。
+    pub song_id: i64,
+    /// 预览歌曲标题。
+    pub title: String,
+}
+
 /// TUI 应用状态。
 pub struct App {
     /// 当前播放器快照。
@@ -48,6 +56,8 @@ pub struct App {
     pub selected_playlist_name: Option<String>,
     /// 当前预览对应的歌单名。
     pub preview_name: Option<String>,
+    /// 当前歌单预览完整行模型。
+    pub preview_songs: Vec<PreviewSongRow>,
     /// 当前歌单预览标题列表。
     pub preview_titles: Vec<String>,
     /// 当前选中的预览索引。
@@ -58,6 +68,12 @@ pub struct App {
     pub preview_error: Option<String>,
     /// 当前队列标题列表。
     pub queue_titles: Vec<String>,
+    /// 当前播放曲目的歌曲 ID。
+    pub current_track_song_id: Option<i64>,
+    /// 当前播放曲目的歌词文本。
+    pub current_track_lyrics: Option<String>,
+    /// 当前播放曲目的封面摘要。
+    pub current_track_cover_summary: Option<String>,
 }
 
 impl App {
@@ -84,11 +100,15 @@ impl App {
             preview_state: ListState::default(),
             selected_playlist_name: None,
             preview_name: None,
+            preview_songs: Vec::new(),
             preview_titles: Vec::new(),
             selected_preview_index: 0,
             preview_loading: false,
             preview_error: None,
             queue_titles: Vec::new(),
+            current_track_song_id: None,
+            current_track_lyrics: None,
+            current_track_cover_summary: None,
         }
     }
 
@@ -266,6 +286,7 @@ impl App {
     /// # 返回值
     /// - 无
     pub fn apply_snapshot(&mut self, snapshot: PlayerSnapshot) {
+        self.current_track_song_id = snapshot.current_song.as_ref().map(|song| song.song_id);
         self.queue_titles = snapshot.queue_preview.clone();
         self.player = snapshot;
     }
@@ -278,9 +299,19 @@ impl App {
     /// # 返回值
     /// - 无
     pub fn apply_tui_snapshot(&mut self, snapshot: crate::core::model::tui::TuiSnapshot) {
-        self.apply_snapshot(snapshot.player);
-        self.active_task = snapshot.active_task;
-        self.playlist_browser = snapshot.playlist_browser;
+        let crate::core::model::tui::TuiSnapshot {
+            player,
+            active_task,
+            playlist_browser,
+            current_track,
+        } = snapshot;
+
+        self.current_track_song_id = current_track.song_id;
+        self.current_track_lyrics = current_track.lyrics;
+        self.current_track_cover_summary = None;
+        self.apply_snapshot(player);
+        self.active_task = active_task;
+        self.playlist_browser = playlist_browser;
         self.active_view = ActiveView::Playlist;
 
         let selected_still_exists = self
@@ -349,6 +380,7 @@ impl App {
         self.preview_name = None;
         self.preview_error = None;
         self.preview_loading = false;
+        self.preview_songs.clear();
         self.preview_titles.clear();
         self.selected_preview_index = 0;
         self.preview_state.select(None);
@@ -395,8 +427,16 @@ impl App {
         preview: &crate::api::playlist::PlaylistPreviewResponse,
     ) {
         self.preview_name = Some(preview.name.clone());
-        self.preview_titles = preview
+        self.preview_songs = preview
             .songs
+            .iter()
+            .map(|song| PreviewSongRow {
+                song_id: song.id,
+                title: song.title.clone(),
+            })
+            .collect();
+        self.preview_titles = self
+            .preview_songs
             .iter()
             .map(|song| song.title.clone())
             .collect();
@@ -432,6 +472,7 @@ impl App {
     pub fn set_playlist_preview_error(&mut self, message: impl Into<String>) {
         self.preview_loading = false;
         self.preview_error = Some(message.into());
+        self.preview_songs.clear();
         self.preview_titles.clear();
         self.selected_preview_index = 0;
         self.preview_state.select(None);

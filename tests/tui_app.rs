@@ -300,3 +300,14 @@ fn render_playlist_rows_marks_selected_and_current_source_separately() {
     assert!(!rows[0].is_selected);
     assert!(rows[1].is_selected);
 }
+
+#[test]
+fn detail_lines_show_lyrics_or_cover_fallback() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.current_track_lyrics = Some("[00:00.00]hello".to_string());
+    app.current_track_cover_summary = Some("Cover unsupported in this terminal".to_string());
+
+    let lines = melo::tui::ui::details::render_detail_lines(&app);
+    assert!(lines.iter().any(|line| line.contains("hello")));
+    assert!(lines.iter().any(|line| line.contains("unsupported")));
+}
