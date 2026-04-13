@@ -2,6 +2,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,7 +11,9 @@ use tokio::sync::broadcast;
 use crate::core::config::settings::Settings;
 use crate::core::error::{MeloError, MeloResult};
 use crate::domain::player::backend::PlaybackBackend;
-use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackRuntimeReceiver};
+use crate::domain::player::runtime::{
+    PlaybackRuntimeEvent, PlaybackRuntimeReceiver, PlaybackStopReason,
+};
 
 const IPC_CONNECT_ATTEMPTS: usize = 40;
 const IPC_CONNECT_DELAY_MS: u64 = 50;
@@ -19,6 +22,7 @@ struct MpvProcess {
     child: Child,
     command_pipe: File,
     ipc_path: String,
+    generation: u64,
 }
 
 /// 基于外部 `mpv` 进程的播放后端。
@@ -29,6 +33,7 @@ pub struct MpvBackend {
     process: Mutex<Option<MpvProcess>>,
     runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
     current_position: Arc<Mutex<Option<Duration>>>,
+    expected_stop_generation: Arc<AtomicU64>,
 }
 
 impl MpvBackend {
@@ -48,6 +53,7 @@ impl MpvBackend {
             process: Mutex::new(None),
             runtime_tx,
             current_position: Arc::new(Mutex::new(None)),
+            expected_stop_generation: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -81,12 +87,14 @@ impl MpvBackend {
             generation,
             self.runtime_tx.clone(),
             Arc::clone(&self.current_position),
+            Arc::clone(&self.expected_stop_generation),
         );
 
         Ok(MpvProcess {
             child,
             command_pipe,
             ipc_path,
+            generation,
         })
     }
 
@@ -99,6 +107,8 @@ impl MpvBackend {
     /// - `MeloResult<()>`：停止结果
     fn stop_process_locked(&self, guard: &mut Option<MpvProcess>) -> MeloResult<()> {
         if let Some(mut process) = guard.take() {
+            self.expected_stop_generation
+                .store(process.generation, Ordering::SeqCst);
             let _ = process.child.kill();
             let _ = process.child.wait();
             cleanup_ipc_path(&process.ipc_path);
@@ -253,6 +263,7 @@ pub fn build_mpv_command(path: &str, ipc_path: &str, extra_args: &[String]) -> C
     command.arg("--idle=yes");
     command.arg("--no-terminal");
     command.arg("--force-window=no");
+    command.arg("--no-video");
     command.arg(format!("--input-ipc-server={ipc_path}"));
     for arg in extra_args {
         command.arg(arg);
@@ -272,7 +283,16 @@ pub fn parse_mpv_event(line: &str, generation: u64) -> MeloResult<Option<Playbac
     let value: serde_json::Value =
         serde_json::from_str(line).map_err(|err| MeloError::Message(err.to_string()))?;
     if value.get("event").and_then(|event| event.as_str()) == Some("end-file") {
-        return Ok(Some(PlaybackRuntimeEvent::TrackEnded { generation }));
+        let reason = match value.get("reason").and_then(|reason| reason.as_str()) {
+            Some("eof") => PlaybackStopReason::NaturalEof,
+            Some("stop") => PlaybackStopReason::UserStop,
+            Some("quit") => PlaybackStopReason::UserClosedBackend,
+            _ => PlaybackStopReason::BackendAborted,
+        };
+        return Ok(Some(PlaybackRuntimeEvent::PlaybackStopped {
+            generation,
+            reason,
+        }));
     }
     Ok(None)
 }
@@ -419,15 +439,29 @@ fn spawn_event_reader(
     generation: u64,
     runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
     current_position: Arc<Mutex<Option<Duration>>>,
+    expected_stop_generation: Arc<AtomicU64>,
 ) {
     std::thread::spawn(move || {
         let mut reader = BufReader::new(reader);
+        let mut saw_stop_event = false;
         loop {
             let mut line = String::new();
             let Ok(bytes_read) = reader.read_line(&mut line) else {
+                maybe_report_backend_abort(
+                    &runtime_tx,
+                    &expected_stop_generation,
+                    generation,
+                    saw_stop_event,
+                );
                 break;
             };
             if bytes_read == 0 {
+                maybe_report_backend_abort(
+                    &runtime_tx,
+                    &expected_stop_generation,
+                    generation,
+                    saw_stop_event,
+                );
                 break;
             }
 
@@ -436,9 +470,36 @@ fn spawn_event_reader(
             }
 
             if let Ok(Some(event)) = parse_mpv_event(&line, generation) {
+                saw_stop_event = true;
                 let _ = runtime_tx.send(event);
             }
         }
+    });
+}
+
+/// 在 IPC 提前断开且并非预期停播时，上报一次后端异常退出事件。
+///
+/// # 参数
+/// - `runtime_tx`：运行时事件发送器
+/// - `expected_stop_generation`：显式停播时记录的代次
+/// - `generation`：当前读取线程对应的播放代次
+/// - `saw_stop_event`：在断开前是否已经收到过显式 stop 事件
+///
+/// # 返回值
+/// - 无
+fn maybe_report_backend_abort(
+    runtime_tx: &broadcast::Sender<PlaybackRuntimeEvent>,
+    expected_stop_generation: &AtomicU64,
+    generation: u64,
+    saw_stop_event: bool,
+) {
+    if saw_stop_event || expected_stop_generation.load(Ordering::SeqCst) == generation {
+        return;
+    }
+
+    let _ = runtime_tx.send(PlaybackRuntimeEvent::PlaybackStopped {
+        generation,
+        reason: PlaybackStopReason::BackendAborted,
     });
 }
 

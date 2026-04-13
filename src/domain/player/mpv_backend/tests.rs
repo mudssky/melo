@@ -1,12 +1,12 @@
 use crate::domain::player::mpv_backend::{build_mpv_command, parse_mpv_event};
-use crate::domain::player::runtime::PlaybackRuntimeEvent;
+use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackStopReason};
 
 #[test]
-fn build_mpv_command_includes_windows_ipc_server_argument() {
+fn build_mpv_command_forces_headless_audio_client_mode() {
     let command = build_mpv_command(
         "C:/Tools/mpv.exe",
         "\\\\.\\pipe\\melo-mpv-test",
-        &["--no-video".to_string()],
+        &Vec::<String>::new(),
     );
     let args = command
         .get_args()
@@ -15,18 +15,23 @@ fn build_mpv_command_includes_windows_ipc_server_argument() {
 
     assert!(args.iter().any(|arg| arg == "--idle=yes"));
     assert!(args.iter().any(|arg| arg == "--no-video"));
-    assert!(
-        args.iter()
-            .any(|arg| arg.contains("--input-ipc-server=\\\\.\\pipe\\melo-mpv-test"))
-    );
+    assert!(args.iter().any(|arg| arg == "--force-window=no"));
 }
 
 #[test]
-fn parse_end_file_event_turns_into_track_end() {
-    let event = parse_mpv_event(r#"{"event":"end-file","reason":"eof"}"#, 7).unwrap();
-
+fn parse_end_file_event_distinguishes_eof_and_user_close() {
     assert_eq!(
-        event,
-        Some(PlaybackRuntimeEvent::TrackEnded { generation: 7 })
+        parse_mpv_event(r#"{"event":"end-file","reason":"eof"}"#, 7).unwrap(),
+        Some(PlaybackRuntimeEvent::PlaybackStopped {
+            generation: 7,
+            reason: PlaybackStopReason::NaturalEof,
+        })
+    );
+    assert_eq!(
+        parse_mpv_event(r#"{"event":"end-file","reason":"quit"}"#, 7).unwrap(),
+        Some(PlaybackRuntimeEvent::PlaybackStopped {
+            generation: 7,
+            reason: PlaybackStopReason::UserClosedBackend,
+        })
     );
 }

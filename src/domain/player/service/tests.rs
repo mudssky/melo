@@ -5,7 +5,7 @@ use tokio::sync::broadcast;
 
 use crate::core::model::player::{PlaybackState, QueueItem, RepeatMode};
 use crate::domain::player::backend::{PlaybackBackend, PlaybackCommand};
-use crate::domain::player::runtime::PlaybackRuntimeEvent;
+use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackStopReason};
 use crate::domain::player::service::PlayerService;
 use crate::domain::player::session_store::PersistedPlayerSession;
 
@@ -23,9 +23,10 @@ impl FakeRuntimeHandle {
     /// # 返回值
     /// - 无
     fn track_ended(&self, generation: u64) {
-        let _ = self
-            .tx
-            .send(PlaybackRuntimeEvent::TrackEnded { generation });
+        let _ = self.tx.send(PlaybackRuntimeEvent::PlaybackStopped {
+            generation,
+            reason: PlaybackStopReason::NaturalEof,
+        });
     }
 }
 
@@ -255,6 +256,51 @@ async fn queue_tail_track_end_sets_stopped_without_error() {
     assert_eq!(snapshot.playback_state, PlaybackState::Stopped.as_str());
     assert_eq!(snapshot.queue_index, Some(0));
     assert!(snapshot.last_error.is_none());
+}
+
+#[tokio::test]
+async fn runtime_user_closed_backend_stops_without_advancing() {
+    let backend = Arc::new(FakeBackend::default());
+    let runtime = backend.runtime_handle();
+    let service = Arc::new(PlayerService::new(backend));
+    service.start_runtime_event_loop();
+
+    service.append(item(1, "One")).await.unwrap();
+    service.append(item(2, "Two")).await.unwrap();
+    service.play().await.unwrap();
+
+    let _ = runtime.tx.send(PlaybackRuntimeEvent::PlaybackStopped {
+        generation: 1,
+        reason: PlaybackStopReason::UserClosedBackend,
+    });
+    tokio::task::yield_now().await;
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(snapshot.playback_state, PlaybackState::Stopped.as_str());
+    assert_eq!(snapshot.queue_index, Some(0));
+    assert_eq!(snapshot.current_song.unwrap().title, "One");
+}
+
+#[tokio::test]
+async fn runtime_backend_aborted_sets_error_without_auto_next() {
+    let backend = Arc::new(FakeBackend::default());
+    let runtime = backend.runtime_handle();
+    let service = Arc::new(PlayerService::new(backend));
+    service.start_runtime_event_loop();
+
+    service.append(item(1, "One")).await.unwrap();
+    service.append(item(2, "Two")).await.unwrap();
+    service.play().await.unwrap();
+
+    let _ = runtime.tx.send(PlaybackRuntimeEvent::PlaybackStopped {
+        generation: 1,
+        reason: PlaybackStopReason::BackendAborted,
+    });
+    tokio::task::yield_now().await;
+
+    let snapshot = service.snapshot().await;
+    assert_eq!(snapshot.playback_state, PlaybackState::Error.as_str());
+    assert_eq!(snapshot.last_error.unwrap().code, "backend_aborted");
 }
 
 #[tokio::test(start_paused = true)]

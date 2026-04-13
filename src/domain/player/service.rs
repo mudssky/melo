@@ -9,7 +9,7 @@ use crate::core::model::player::{
 use crate::domain::player::backend::PlaybackBackend;
 use crate::domain::player::navigation::PlaybackNavigation;
 use crate::domain::player::queue::PlayerQueue;
-use crate::domain::player::runtime::PlaybackRuntimeEvent;
+use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackStopReason};
 use crate::domain::player::session_store::PersistedPlayerSession;
 
 /// 播放器内部会话状态，是唯一可写的播放器真相来源。
@@ -668,7 +668,10 @@ impl PlayerService {
     /// - 无
     async fn handle_runtime_event(&self, event: PlaybackRuntimeEvent) {
         match event {
-            PlaybackRuntimeEvent::TrackEnded { generation } => {
+            PlaybackRuntimeEvent::PlaybackStopped {
+                generation,
+                reason: PlaybackStopReason::NaturalEof,
+            } => {
                 let should_advance = {
                     let mut session = self.session.lock().await;
                     if session.playback_state != PlaybackState::Playing {
@@ -698,6 +701,36 @@ impl PlayerService {
                 if should_advance {
                     let _ = self.play().await;
                 }
+            }
+            PlaybackRuntimeEvent::PlaybackStopped {
+                generation,
+                reason: PlaybackStopReason::UserStop | PlaybackStopReason::UserClosedBackend,
+            } => {
+                let mut session = self.session.lock().await;
+                if generation != session.playback_generation {
+                    return;
+                }
+
+                session.playback_state = PlaybackState::Stopped;
+                session.last_error = None;
+                session.position_seconds = session.queue.current().map(|_| 0.0);
+                let _ = self.publish_locked(&mut session);
+            }
+            PlaybackRuntimeEvent::PlaybackStopped {
+                generation,
+                reason: PlaybackStopReason::BackendAborted,
+            } => {
+                let mut session = self.session.lock().await;
+                if generation != session.playback_generation {
+                    return;
+                }
+
+                let _ = self.fail_locked(
+                    &mut session,
+                    "backend_aborted",
+                    "backend aborted unexpectedly",
+                    MeloError::Message("backend aborted unexpectedly".to_string()),
+                );
             }
         }
     }

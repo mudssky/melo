@@ -5,7 +5,9 @@ use tokio::sync::broadcast;
 
 use crate::core::error::{MeloError, MeloResult};
 use crate::domain::player::backend::PlaybackBackend;
-use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackRuntimeReceiver};
+use crate::domain::player::runtime::{
+    PlaybackRuntimeEvent, PlaybackRuntimeReceiver, PlaybackStopReason,
+};
 
 /// 基于 `rodio` 的真实播放后端。
 pub struct RodioBackend {
@@ -35,7 +37,7 @@ impl RodioBackend {
         })
     }
 
-    /// 在后台线程等待当前播放器自然结束，并在仍是活跃 generation 时上报事件。
+    /// 在后台线程等待当前播放器自然结束，并在仍是活跃 generation 时上报停止事件。
     ///
     /// # 参数
     /// - `runtime_tx`：运行时事件发送器
@@ -55,13 +57,16 @@ impl RodioBackend {
             player.sleep_until_end();
             let current_generation = active_generation.load(Ordering::SeqCst);
             if should_emit_track_end(current_generation, generation, player.empty()) {
-                let _ = runtime_tx.send(PlaybackRuntimeEvent::TrackEnded { generation });
+                let _ = runtime_tx.send(PlaybackRuntimeEvent::PlaybackStopped {
+                    generation,
+                    reason: PlaybackStopReason::NaturalEof,
+                });
             }
         });
     }
 }
 
-/// 判断一次播放器结束是否应该对外发送 `TrackEnded` 事件。
+/// 判断一次播放器结束是否应该对外发送自然结束事件。
 ///
 /// # 参数
 /// - `active_generation`：当前后端记录的活跃代次

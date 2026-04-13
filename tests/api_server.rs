@@ -5,7 +5,7 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use futures_util::StreamExt;
 use melo::domain::player::backend::{PlaybackBackend, PlaybackCommand};
-use melo::domain::player::runtime::PlaybackRuntimeEvent;
+use melo::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackStopReason};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_tungstenite::connect_async;
@@ -44,9 +44,10 @@ impl Default for EventedBackend {
 
 impl EventedBackend {
     fn emit_track_end(&self, generation: u64) {
-        let _ = self
-            .runtime_tx
-            .send(PlaybackRuntimeEvent::TrackEnded { generation });
+        let _ = self.runtime_tx.send(PlaybackRuntimeEvent::PlaybackStopped {
+            generation,
+            reason: PlaybackStopReason::NaturalEof,
+        });
     }
 }
 
