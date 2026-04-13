@@ -25,6 +25,27 @@ pub struct SongRecord {
     pub lyrics_source_kind: String,
 }
 
+/// 构造曲目内容快照时所需的歌曲详情记录。
+#[derive(Debug, Clone)]
+pub struct TrackContentRecord {
+    /// 歌曲 ID。
+    pub song_id: i64,
+    /// 文件路径。
+    pub path: String,
+    /// 标题。
+    pub title: String,
+    /// 时长秒数。
+    pub duration_seconds: Option<f64>,
+    /// 原始歌词文本。
+    pub lyrics: Option<String>,
+    /// 歌词来源类型。
+    pub lyrics_source_kind: String,
+    /// 文件修改时间戳。
+    pub file_mtime: i64,
+    /// 数据库更新时间文本。
+    pub updated_at: String,
+}
+
 /// 封面引用记录。
 #[derive(Debug, Clone)]
 pub struct ArtworkRefRecord {
@@ -437,6 +458,32 @@ impl LibraryRepository {
         Ok(record.map(|model| ArtworkRefRecord {
             source_kind: model.source_kind,
             source_path: model.source_path,
+        }))
+    }
+
+    /// 按歌曲 ID 读取曲目内容快照所需的歌曲详情。
+    ///
+    /// # 参数
+    /// - `song_id`：歌曲 ID
+    ///
+    /// # 返回值
+    /// - `MeloResult<Option<TrackContentRecord>>`：命中时返回歌曲详情
+    pub async fn track_content(&self, song_id: i64) -> MeloResult<Option<TrackContentRecord>> {
+        let connection = connect(&self.settings).await?;
+        let song = songs::Entity::find_by_id(song_id)
+            .one(&connection)
+            .await
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+
+        Ok(song.map(|model| TrackContentRecord {
+            song_id: model.id,
+            path: model.path,
+            title: model.title,
+            duration_seconds: model.duration_seconds,
+            lyrics: model.lyrics,
+            lyrics_source_kind: model.lyrics_source_kind,
+            file_mtime: model.file_mtime,
+            updated_at: model.updated_at,
         }))
     }
 

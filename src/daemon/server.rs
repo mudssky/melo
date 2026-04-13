@@ -19,6 +19,10 @@ use crate::daemon::app::AppState;
 pub fn router(state: AppState) -> Router {
     let mut router = Router::new()
         .route(
+            "/api/bootstrap",
+            axum::routing::get(crate::api::bootstrap::show),
+        )
+        .route(
             "/api/system/health",
             axum::routing::get(crate::api::system::health),
         )
@@ -107,6 +111,19 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/playlists/play",
             axum::routing::post(crate::api::playlist::play),
+        )
+        .route("/api/sources", axum::routing::get(crate::api::source::list))
+        .route(
+            "/api/sources/tracks",
+            axum::routing::get(crate::api::source::tracks),
+        )
+        .route(
+            "/api/tracks/content",
+            axum::routing::get(crate::api::track::content),
+        )
+        .route(
+            "/api/tracks/refresh",
+            axum::routing::get(crate::api::track::refresh),
         )
         .route(
             "/api/ws/player",

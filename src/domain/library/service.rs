@@ -3,10 +3,14 @@ use std::sync::Arc;
 use crate::core::config::settings::Settings;
 use crate::core::error::{MeloError, MeloResult};
 use crate::core::model::player::QueueItem;
+use crate::core::model::track_content::{ArtworkSummary, TrackContentSnapshot};
 use crate::domain::library::lofty_reader::LoftyMetadataReader;
+use crate::domain::library::lyrics::parse_lyrics_timeline;
 use crate::domain::library::metadata::{LyricsSourceKind, MetadataReader, NullMetadataReader};
 use crate::domain::library::organize::OrganizePreviewRow;
-use crate::domain::library::repository::{ArtworkRefRecord, LibraryRepository, SongRecord};
+use crate::domain::library::repository::{
+    ArtworkRefRecord, LibraryRepository, SongRecord, TrackContentRecord,
+};
 
 /// 媒体库服务，负责目录扫描与数据查询。
 #[derive(Clone)]
@@ -175,6 +179,40 @@ impl LibraryService {
         self.repository.artwork_for_song(song_id).await
     }
 
+    /// 返回指定歌曲的低频内容快照。
+    ///
+    /// # 参数
+    /// - `song_id`：歌曲 ID
+    ///
+    /// # 返回值
+    /// - `MeloResult<TrackContentSnapshot>`：歌曲内容快照
+    pub async fn track_content(&self, song_id: i64) -> MeloResult<TrackContentSnapshot> {
+        let record = self
+            .repository
+            .track_content(song_id)
+            .await?
+            .ok_or_else(|| MeloError::Message(format!("未找到歌曲: {song_id}")))?;
+        self.build_track_content_snapshot(record).await
+    }
+
+    /// 刷新并返回指定歌曲的低频内容快照。
+    ///
+    /// # 参数
+    /// - `song_id`：歌曲 ID
+    ///
+    /// # 返回值
+    /// - `MeloResult<TrackContentSnapshot>`：刷新后的歌曲内容快照
+    pub async fn refresh_track_content(&self, song_id: i64) -> MeloResult<TrackContentSnapshot> {
+        let record = self
+            .repository
+            .track_content(song_id)
+            .await?
+            .ok_or_else(|| MeloError::Message(format!("未找到歌曲: {song_id}")))?;
+        self.ensure_song_id_for_path(std::path::Path::new(&record.path))
+            .await?;
+        self.track_content(song_id).await
+    }
+
     /// 预览 organize 结果。
     ///
     /// # 参数
@@ -245,5 +283,44 @@ impl LibraryService {
         }
 
         Ok(())
+    }
+
+    /// 将数据库歌曲详情记录转换为曲目内容快照。
+    ///
+    /// # 参数
+    /// - `record`：歌曲详情记录
+    ///
+    /// # 返回值
+    /// - `MeloResult<TrackContentSnapshot>`：构造后的曲目内容快照
+    async fn build_track_content_snapshot(
+        &self,
+        record: TrackContentRecord,
+    ) -> MeloResult<TrackContentSnapshot> {
+        let artwork = self
+            .repository
+            .artwork_for_song(record.song_id)
+            .await?
+            .map(|artwork| ArtworkSummary {
+                terminal_summary: format!("Cover: {}", artwork.source_kind),
+                source_kind: artwork.source_kind,
+                source_path: artwork.source_path,
+            });
+        let refresh_token = format!(
+            "song-{}-{}-{}-{}",
+            record.song_id, record.file_mtime, record.updated_at, record.lyrics_source_kind
+        );
+
+        Ok(TrackContentSnapshot {
+            song_id: record.song_id,
+            title: record.title,
+            duration_seconds: record.duration_seconds,
+            artwork,
+            lyrics: record
+                .lyrics
+                .as_deref()
+                .map(parse_lyrics_timeline)
+                .unwrap_or_default(),
+            refresh_token,
+        })
     }
 }

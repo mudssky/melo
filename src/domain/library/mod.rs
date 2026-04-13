@@ -1,5 +1,6 @@
 pub mod assets;
 pub mod lofty_reader;
+pub mod lyrics;
 pub mod metadata;
 pub mod organize;
 pub mod query;

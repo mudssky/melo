@@ -1,3 +1,4 @@
+pub mod bootstrap;
 pub mod docs;
 pub mod error;
 pub mod open;
@@ -5,6 +6,8 @@ pub mod player;
 pub mod playlist;
 pub mod queue;
 pub mod response;
+pub mod source;
 pub mod system;
+pub mod track;
 pub mod tui;
 pub mod ws;

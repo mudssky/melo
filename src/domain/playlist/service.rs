@@ -251,4 +251,15 @@ impl PlaylistService {
             .queue_items_by_song_ids(&song_ids)
             .await
     }
+
+    /// 按稳定顺序返回指定来源中的曲目列表。
+    ///
+    /// # 参数
+    /// - `name`：来源名称
+    ///
+    /// # 返回值
+    /// - `MeloResult<Vec<QueueItem>>`：来源曲目列表
+    pub async fn source_tracks(&self, name: &str) -> MeloResult<Vec<QueueItem>> {
+        self.queue_items(name).await
+    }
 }

@@ -8,6 +8,7 @@ use melo::domain::player::backend::{
     PlaybackBackend, PlaybackCommand, PlaybackSessionHandle, PlaybackStartRequest,
 };
 use melo::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackStopReason};
+use reqwest::Url;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_tungstenite::connect_async;
@@ -26,6 +27,28 @@ fn with_connect_info(mut request: Request<Body>, addr: &str) -> Request<Body> {
         .extensions_mut()
         .insert(ConnectInfo(addr.parse::<std::net::SocketAddr>().unwrap()));
     request
+}
+
+struct TestServer {
+    base_url: String,
+}
+
+/// 启动一个临时 HTTP 测试服务器。
+///
+/// # 参数
+/// - `app`：待启动的 Axum 路由
+///
+/// # 返回值
+/// - `TestServer`：包含可访问基地址的测试服务器句柄
+async fn spawn_test_server(app: axum::Router) -> TestServer {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    TestServer {
+        base_url: format!("http://{addr}"),
+    }
 }
 
 #[derive(Clone)]
@@ -707,4 +730,67 @@ async fn docs_page_endpoint_is_available() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bootstrap_endpoint_returns_runtime_and_default_mode() {
+    let app = melo::daemon::app::test_router().await;
+    let server = spawn_test_server(app).await;
+
+    let response = reqwest::Client::new()
+        .get(format!("{}/api/bootstrap", server.base_url))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+
+    assert_eq!(response["code"], 0);
+    assert_eq!(response["data"]["default_playback_mode"], "ordered");
+    assert!(response["data"]["runtime"]["playback_state"].is_string());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn track_content_endpoint_returns_parsed_lyrics_and_artwork_summary() {
+    let harness = melo::test_support::TestHarness::new().await;
+    harness
+        .seed_song("Blue Bird", "Ikimono-gakari", "Blue Bird", 2008)
+        .await;
+    let conn = rusqlite::Connection::open(harness.settings.database.path.as_std_path()).unwrap();
+    conn.execute(
+        "UPDATE songs
+         SET lyrics = ?1,
+             lyrics_source_kind = 'sidecar',
+             lyrics_source_path = ?2,
+             duration_seconds = 212.0
+         WHERE id = 1",
+        rusqlite::params!["[00:01.00]hello\n[00:05.50]world", "D:/Music/Blue Bird.lrc"],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO artwork_refs (owner_kind, owner_id, source_kind, source_path, embedded_song_id, mime, cache_path, hash, updated_at)
+         VALUES ('song', 1, 'sidecar', ?1, NULL, 'image/jpeg', NULL, NULL, datetime('now'))",
+        ["D:/Music/cover.jpg"],
+    )
+    .unwrap();
+
+    let app = melo::daemon::app::test_router_with_settings(harness.settings.clone()).await;
+    let server = spawn_test_server(app).await;
+    let mut url = Url::parse(&format!("{}/api/tracks/content", server.base_url)).unwrap();
+    url.query_pairs_mut().append_pair("song_id", "1");
+
+    let response = reqwest::Client::new()
+        .get(url)
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+
+    assert_eq!(response["code"], 0);
+    assert!(response["data"]["lyrics"].as_array().unwrap().len() >= 1);
+    assert!(response["data"]["artwork"]["terminal_summary"].is_string());
+    assert!(response["data"]["refresh_token"].is_string());
 }

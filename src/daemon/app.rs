@@ -159,6 +159,8 @@ pub struct AppState {
     pub player: Arc<PlayerService>,
     /// 全局配置。
     pub settings: Settings,
+    /// 媒体库服务。
+    pub library: LibraryService,
     /// 歌单服务。
     pub playlists: PlaylistService,
     /// 直接打开服务。
@@ -248,7 +250,7 @@ impl AppState {
             Arc::new(crate::daemon::playback_context::PlayingPlaylistStore::default());
         let open = Arc::new(crate::domain::open::service::OpenService::new(
             settings.clone(),
-            library,
+            library.clone(),
             playlists.clone(),
             Arc::clone(&player),
             Arc::clone(&runtime_tasks),
@@ -257,6 +259,7 @@ impl AppState {
         Self {
             player,
             settings,
+            library: library.clone(),
             playlists,
             open,
             runtime_tasks,
@@ -296,7 +299,7 @@ impl AppState {
             Arc::new(crate::daemon::playback_context::PlayingPlaylistStore::default());
         let open = Arc::new(crate::domain::open::service::OpenService::new(
             settings.clone(),
-            library,
+            library.clone(),
             playlists.clone(),
             Arc::clone(&player),
             Arc::clone(&runtime_tasks),
@@ -305,6 +308,7 @@ impl AppState {
         let state = Self {
             player: Arc::clone(&player),
             settings,
+            library: library.clone(),
             playlists,
             open,
             runtime_tasks,
