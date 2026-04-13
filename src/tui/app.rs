@@ -530,6 +530,11 @@ impl App {
             self.player.shuffle_enabled
         );
 
+        if let Some(backend_notice) = &self.player.backend_notice {
+            status.push_str(" | backend_notice=");
+            status.push_str(backend_notice);
+        }
+
         if let Some(source_label) = &self.source_label {
             status.push_str(" | source=");
             status.push_str(source_label);

@@ -147,6 +147,32 @@ fn footer_status_includes_volume_and_repeat_mode() {
 }
 
 #[test]
+fn footer_status_appends_backend_notice_when_present() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
+        backend_name: "rodio".into(),
+        backend_notice: Some("mpv_lib and mpv_ipc unavailable, fell back to rodio".into()),
+        playback_state: "playing".into(),
+        queue_preview: vec![],
+        current_song: None,
+        queue_len: 0,
+        queue_index: None,
+        has_next: false,
+        has_prev: false,
+        last_error: None,
+        version: 1,
+        position_seconds: None,
+        position_fraction: None,
+        volume_percent: 100,
+        muted: false,
+        repeat_mode: "off".into(),
+        shuffle_enabled: false,
+    });
+
+    assert!(app.footer_status().contains("fell back to rodio"));
+}
+
+#[test]
 fn footer_status_still_includes_repeat_and_shuffle_after_playlist_snapshot_applies() {
     let mut app = melo::tui::app::App::new_for_test();
     app.apply_tui_snapshot(melo::core::model::tui::TuiSnapshot {

@@ -54,6 +54,20 @@ async fn status_command_prints_progress_fields() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn status_command_prints_backend_notice_field_when_present() {
+    let backend = std::sync::Arc::new(melo::domain::player::backend::NoopBackend);
+    let service = melo::domain::player::service::PlayerService::new_with_notice(
+        backend,
+        Some("mpv_lib unavailable, fell back to mpv_ipc".to_string()),
+    );
+    let snapshot = service.snapshot().await;
+
+    let output = serde_json::to_string(&snapshot).unwrap();
+    assert!(output.contains("backend_notice"));
+    assert!(output.contains("fell back to mpv_ipc"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn tui_client_receives_initial_tui_snapshot() {
     let state = melo::daemon::app::AppState::for_test().await;
     state
