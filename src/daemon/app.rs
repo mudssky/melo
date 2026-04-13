@@ -471,6 +471,25 @@ impl AppState {
     pub async fn tui_snapshot(&self) -> MeloResult<crate::core::model::tui::TuiSnapshot> {
         let player = self.player.snapshot().await;
         let current = self.playback_context.current();
+        let current_track = if let Some(song) = player.current_song.as_ref() {
+            let song_id = song.song_id;
+            let song_record = self.playlists.song_record(song_id).await?;
+            let artwork = self.playlists.artwork_for_song(song_id).await?;
+            crate::core::model::tui::CurrentTrackSnapshot {
+                song_id: Some(song_id),
+                title: Some(song.title.clone()),
+                lyrics: song_record.as_ref().and_then(|song| song.lyrics.clone()),
+                lyrics_source_kind: song_record
+                    .as_ref()
+                    .map(|song| song.lyrics_source_kind.clone()),
+                artwork: artwork.map(|artwork| crate::core::model::tui::ArtworkRefSnapshot {
+                    source_kind: artwork.source_kind,
+                    source_path: artwork.source_path,
+                }),
+            }
+        } else {
+            crate::core::model::tui::CurrentTrackSnapshot::default()
+        };
         let mut visible_playlists = self
             .playlists
             .list_all()
@@ -508,6 +527,7 @@ impl AppState {
                 current_playing_playlist,
                 visible_playlists,
             },
+            current_track,
         })
     }
 

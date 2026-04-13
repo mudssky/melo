@@ -1,7 +1,7 @@
 use crate::core::config::settings::Settings;
 use crate::core::error::MeloResult;
 use crate::core::model::player::QueueItem;
-use crate::domain::library::repository::{LibraryRepository, SongRecord};
+use crate::domain::library::repository::{ArtworkRefRecord, LibraryRepository, SongRecord};
 use crate::domain::playlist::query::SmartQuery;
 use crate::domain::playlist::repository::{PlaylistRepository, StoredPlaylist};
 
@@ -192,6 +192,33 @@ impl PlaylistService {
         }
 
         self.repository.preview_static(name).await
+    }
+
+    /// 按歌曲 ID 读取一条歌曲记录。
+    ///
+    /// # 参数
+    /// - `song_id`：歌曲 ID
+    ///
+    /// # 返回
+    /// - `MeloResult<Option<SongRecord>>`：命中的歌曲记录
+    pub async fn song_record(&self, song_id: i64) -> MeloResult<Option<SongRecord>> {
+        Ok(self
+            .library_repository
+            .list_songs()
+            .await?
+            .into_iter()
+            .find(|song| song.id == song_id))
+    }
+
+    /// 按歌曲 ID 读取封面引用。
+    ///
+    /// # 参数
+    /// - `song_id`：歌曲 ID
+    ///
+    /// # 返回
+    /// - `MeloResult<Option<ArtworkRefRecord>>`：封面引用记录
+    pub async fn artwork_for_song(&self, song_id: i64) -> MeloResult<Option<ArtworkRefRecord>> {
+        self.library_repository.artwork_for_song(song_id).await
     }
 
     /// 将歌单内容转换成播放器队列项。

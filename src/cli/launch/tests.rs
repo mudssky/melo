@@ -23,6 +23,7 @@ fn playing_snapshot() -> crate::core::model::tui::TuiSnapshot {
             }),
             visible_playlists: Vec::new(),
         },
+        current_track: crate::core::model::tui::CurrentTrackSnapshot::default(),
     }
 }
 

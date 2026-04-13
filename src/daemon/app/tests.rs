@@ -49,3 +49,24 @@ async fn app_state_tui_snapshot_includes_active_runtime_task() {
         Some("track-01.flac")
     );
 }
+
+#[tokio::test]
+async fn tui_snapshot_includes_current_track_detail_when_queue_has_song() {
+    let state = crate::daemon::app::AppState::for_test().await;
+    state
+        .player
+        .append(crate::core::model::player::QueueItem {
+            song_id: 7,
+            path: "tests/fixtures/full_test.mp3".into(),
+            title: "Blue Bird".into(),
+            duration_seconds: Some(212.0),
+        })
+        .await
+        .unwrap();
+    state.set_current_playlist_context("Favorites", "static");
+    state.player.play().await.unwrap();
+
+    let snapshot = state.tui_snapshot().await.unwrap();
+    assert_eq!(snapshot.current_track.song_id, Some(7));
+    assert_eq!(snapshot.current_track.title.as_deref(), Some("Blue Bird"));
+}

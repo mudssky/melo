@@ -87,6 +87,7 @@ fn hit_test_mouse_target_maps_sidebar_row_to_playlist_item() {
         player: crate::core::model::player::PlayerSnapshot::default(),
         active_task: None,
         playlist_browser: browser_snapshot(),
+        current_track: crate::core::model::tui::CurrentTrackSnapshot::default(),
     });
     let layout = crate::tui::ui::layout::split(ratatui::layout::Rect::new(0, 0, 100, 30), false);
 

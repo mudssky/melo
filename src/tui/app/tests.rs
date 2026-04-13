@@ -37,6 +37,7 @@ fn app_uses_default_selected_playlist_only_for_initial_selection() {
         player: crate::core::model::player::PlayerSnapshot::default(),
         active_task: None,
         playlist_browser: browser_snapshot(),
+        current_track: crate::core::model::tui::CurrentTrackSnapshot::default(),
     });
     assert_eq!(app.selected_playlist_name(), Some("Favorites"));
 
@@ -47,6 +48,7 @@ fn app_uses_default_selected_playlist_only_for_initial_selection() {
         player: crate::core::model::player::PlayerSnapshot::default(),
         active_task: None,
         playlist_browser: browser_snapshot(),
+        current_track: crate::core::model::tui::CurrentTrackSnapshot::default(),
     });
     assert_eq!(app.selected_playlist_name(), Some("Aimer"));
 }
@@ -69,6 +71,7 @@ fn enter_on_playlist_list_requests_play_from_start() {
         player: crate::core::model::player::PlayerSnapshot::default(),
         active_task: None,
         playlist_browser: browser_snapshot(),
+        current_track: crate::core::model::tui::CurrentTrackSnapshot::default(),
     });
 
     let action = app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -86,6 +89,7 @@ fn selecting_playlist_index_updates_highlight_without_playing() {
         player: crate::core::model::player::PlayerSnapshot::default(),
         active_task: None,
         playlist_browser: browser_snapshot(),
+        current_track: crate::core::model::tui::CurrentTrackSnapshot::default(),
     });
 
     let effect = app.select_playlist_index(1);

@@ -58,6 +58,30 @@ impl Default for PlaylistBrowserSnapshot {
     }
 }
 
+/// 当前曲目封面引用快照。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, ToSchema, Default)]
+pub struct ArtworkRefSnapshot {
+    /// 封面来源类型。
+    pub source_kind: String,
+    /// 封面来源路径。
+    pub source_path: Option<String>,
+}
+
+/// 当前播放曲目的聚合详情快照。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, ToSchema, Default)]
+pub struct CurrentTrackSnapshot {
+    /// 当前曲目 ID。
+    pub song_id: Option<i64>,
+    /// 当前曲目标题。
+    pub title: Option<String>,
+    /// 当前曲目歌词文本。
+    pub lyrics: Option<String>,
+    /// 歌词来源类型。
+    pub lyrics_source_kind: Option<String>,
+    /// 当前曲目封面引用。
+    pub artwork: Option<ArtworkRefSnapshot>,
+}
+
 /// 提供给 TUI 的聚合快照。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct TuiSnapshot {
@@ -67,4 +91,6 @@ pub struct TuiSnapshot {
     pub active_task: Option<RuntimeTaskSnapshot>,
     /// 歌单浏览区域快照。
     pub playlist_browser: PlaylistBrowserSnapshot,
+    /// 当前播放曲目的详情快照。
+    pub current_track: CurrentTrackSnapshot,
 }

@@ -153,6 +153,7 @@ fn footer_status_still_includes_repeat_and_shuffle_after_playlist_snapshot_appli
         },
         active_task: None,
         playlist_browser: melo::core::model::tui::PlaylistBrowserSnapshot::default(),
+        current_track: melo::core::model::tui::CurrentTrackSnapshot::default(),
     });
 
     let footer = app.footer_status();
@@ -207,6 +208,7 @@ fn active_task_bar_renders_current_item_name() {
             last_error: None,
         }),
         playlist_browser: melo::core::model::tui::PlaylistBrowserSnapshot::default(),
+        current_track: melo::core::model::tui::CurrentTrackSnapshot::default(),
     });
 
     let text = app.task_bar_text(
@@ -238,6 +240,7 @@ fn active_task_bar_truncates_long_text_to_available_width() {
             last_error: None,
         }),
         playlist_browser: melo::core::model::tui::PlaylistBrowserSnapshot::default(),
+        current_track: melo::core::model::tui::CurrentTrackSnapshot::default(),
     });
 
     let text = app
@@ -288,6 +291,7 @@ fn render_playlist_rows_marks_selected_and_current_source_separately() {
         player: melo::core::model::player::PlayerSnapshot::default(),
         active_task: None,
         playlist_browser: browser_snapshot(),
+        current_track: melo::core::model::tui::CurrentTrackSnapshot::default(),
     });
     app.select_playlist_index(1);
 
