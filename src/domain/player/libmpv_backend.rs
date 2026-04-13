@@ -187,39 +187,50 @@ fn spawn_event_loop(
     runtime_tx: broadcast::Sender<PlaybackRuntimeEvent>,
     generation: u64,
 ) {
-    let client_name = format!("melo-libmpv-{generation}");
-    let Ok(mut events) = mpv
-        .lock()
-        .unwrap()
-        .create_client(Some(client_name.as_str()))
-        .map_err(|err| MeloError::Message(err.to_string()))
-    else {
-        return;
-    };
+    let mpv = Arc::clone(mpv);
     std::thread::spawn(move || {
-        let _ = events.disable_deprecated_events();
         loop {
-            match events.wait_event(0.1) {
-                Some(Ok(Event::EndFile(reason))) => {
-                    let reason = match reason {
-                        mpv_end_file_reason::Eof => PlaybackStopReason::NaturalEof,
-                        mpv_end_file_reason::Stop => PlaybackStopReason::UserStop,
-                        mpv_end_file_reason::Quit => PlaybackStopReason::UserClosedBackend,
-                        _ => PlaybackStopReason::BackendAborted,
-                    };
-                    let _ = runtime_tx
-                        .send(PlaybackRuntimeEvent::PlaybackStopped { generation, reason });
-                    break;
-                }
-                Some(Ok(Event::Shutdown)) => {
-                    let _ = runtime_tx.send(PlaybackRuntimeEvent::PlaybackStopped {
+            let event = {
+                let mut mpv = mpv.lock().unwrap();
+                let _ = mpv.disable_deprecated_events();
+                match mpv.wait_event(0.1) {
+                    Some(Ok(Event::EndFile(reason))) => Some(Ok(match reason {
+                        mpv_end_file_reason::Eof => PlaybackRuntimeEvent::PlaybackStopped {
+                            generation,
+                            reason: PlaybackStopReason::NaturalEof,
+                        },
+                        mpv_end_file_reason::Stop => PlaybackRuntimeEvent::PlaybackStopped {
+                            generation,
+                            reason: PlaybackStopReason::UserStop,
+                        },
+                        mpv_end_file_reason::Quit => PlaybackRuntimeEvent::PlaybackStopped {
+                            generation,
+                            reason: PlaybackStopReason::UserClosedBackend,
+                        },
+                        _ => PlaybackRuntimeEvent::PlaybackStopped {
+                            generation,
+                            reason: PlaybackStopReason::BackendAborted,
+                        },
+                    })),
+                    Some(Ok(Event::Shutdown)) => Some(Ok(PlaybackRuntimeEvent::PlaybackStopped {
                         generation,
                         reason: PlaybackStopReason::UserClosedBackend,
-                    });
+                    })),
+                    Some(Ok(_)) => Some(Err(())),
+                    Some(Err(_)) => Some(Ok(PlaybackRuntimeEvent::PlaybackStopped {
+                        generation,
+                        reason: PlaybackStopReason::BackendAborted,
+                    })),
+                    None => None,
+                }
+            };
+
+            match event {
+                Some(Ok(event)) => {
+                    let _ = runtime_tx.send(event);
                     break;
                 }
-                Some(Ok(_)) => {}
-                Some(Err(_)) => break,
+                Some(Err(())) => {}
                 None => {}
             }
         }
