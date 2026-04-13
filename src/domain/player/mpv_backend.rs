@@ -245,7 +245,7 @@ pub fn build_mpv_command(path: &str, ipc_path: &str, extra_args: &[String]) -> C
     command
 }
 
-/// 解析 `mpv` 输出的一条 JSON 事件。
+/// 将 `mpv` IPC 管道中的一条 JSON 事件映射为运行时事件。
 ///
 /// # 参数
 /// - `line`：原始 JSON 行
@@ -253,7 +253,10 @@ pub fn build_mpv_command(path: &str, ipc_path: &str, extra_args: &[String]) -> C
 ///
 /// # 返回值
 /// - `MeloResult<Option<PlaybackRuntimeEvent>>`：识别到的运行时事件
-pub fn parse_mpv_event(line: &str, generation: u64) -> MeloResult<Option<PlaybackRuntimeEvent>> {
+pub fn map_pipe_event_to_runtime(
+    line: &str,
+    generation: u64,
+) -> MeloResult<Option<PlaybackRuntimeEvent>> {
     let value: serde_json::Value =
         serde_json::from_str(line).map_err(|err| MeloError::Message(err.to_string()))?;
     if value.get("event").and_then(|event| event.as_str()) == Some("end-file") {
@@ -486,7 +489,7 @@ fn spawn_event_reader(
                 *current_position.lock().unwrap() = Some(position);
             }
 
-            if let Ok(Some(event)) = parse_mpv_event(&line, generation) {
+            if let Ok(Some(event)) = map_pipe_event_to_runtime(&line, generation) {
                 saw_stop_event = true;
                 let _ = runtime_tx.send(event);
             }

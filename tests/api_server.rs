@@ -350,6 +350,26 @@ async fn websocket_status_contract_includes_progress_fields() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn websocket_initial_snapshot_keeps_backend_notice_contract() {
+    let app = melo::daemon::app::test_router().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let (mut stream, _response) = connect_async(format!("ws://{addr}/api/ws/player"))
+        .await
+        .unwrap();
+    let message = stream.next().await.unwrap().unwrap();
+    let snapshot: melo::core::model::player::PlayerSnapshot =
+        serde_json::from_str(&message.into_text().unwrap()).unwrap();
+
+    assert!(snapshot.backend_notice.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn api_tui_websocket_initial_snapshot_includes_active_task() {
     let state = melo::daemon::app::AppState::for_test().await;
     let handle = state

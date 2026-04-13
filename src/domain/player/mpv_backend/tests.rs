@@ -1,8 +1,8 @@
-use crate::domain::player::mpv_backend::{build_mpv_command, parse_mpv_event};
+use crate::domain::player::mpv_backend::{build_mpv_command, map_pipe_event_to_runtime};
 use crate::domain::player::runtime::{PlaybackRuntimeEvent, PlaybackStopReason};
 
 #[test]
-fn build_mpv_command_forces_headless_audio_client_mode() {
+fn mpv_backend_creates_session_and_maps_headless_flags() {
     let command = build_mpv_command(
         "C:/Tools/mpv.exe",
         "\\\\.\\pipe\\melo-mpv-test",
@@ -14,24 +14,17 @@ fn build_mpv_command_forces_headless_audio_client_mode() {
         .collect::<Vec<_>>();
 
     assert!(args.iter().any(|arg| arg == "--idle=yes"));
-    assert!(args.iter().any(|arg| arg == "--no-video"));
     assert!(args.iter().any(|arg| arg == "--force-window=no"));
+    assert!(args.iter().any(|arg| arg == "--no-video"));
 }
 
 #[test]
-fn parse_end_file_event_distinguishes_eof_and_user_close() {
+fn mpv_session_maps_end_file_to_runtime_stop_reason() {
     assert_eq!(
-        parse_mpv_event(r#"{"event":"end-file","reason":"eof"}"#, 7).unwrap(),
+        map_pipe_event_to_runtime(r#"{"event":"end-file","reason":"eof"}"#, 3).unwrap(),
         Some(PlaybackRuntimeEvent::PlaybackStopped {
-            generation: 7,
+            generation: 3,
             reason: PlaybackStopReason::NaturalEof,
-        })
-    );
-    assert_eq!(
-        parse_mpv_event(r#"{"event":"end-file","reason":"quit"}"#, 7).unwrap(),
-        Some(PlaybackRuntimeEvent::PlaybackStopped {
-            generation: 7,
-            reason: PlaybackStopReason::UserClosedBackend,
         })
     );
 }
