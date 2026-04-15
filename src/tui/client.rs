@@ -69,6 +69,20 @@ impl TuiClient {
         api_client.bootstrap().await
     }
 
+    /// 读取最新的低频首页聚合快照。
+    ///
+    /// # 参数
+    /// - `api_client`：HTTP API 客户端
+    ///
+    /// # 返回值
+    /// - `MeloResult<TuiSnapshot>`：最新首页聚合快照
+    pub async fn refresh_home(
+        &self,
+        api_client: &crate::cli::client::ApiClient,
+    ) -> MeloResult<TuiSnapshot> {
+        api_client.tui_home().await
+    }
+
     /// 连接到轻量播放运行时快照流。
     ///
     /// # 参数

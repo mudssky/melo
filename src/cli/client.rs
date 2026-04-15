@@ -3,6 +3,7 @@ use crate::api::system::{DaemonStatusResponse, HealthResponse};
 use crate::core::error::{MeloError, MeloResult};
 use crate::core::model::playback_runtime::ClientBootstrapSnapshot;
 use crate::core::model::player::PlayerSnapshot;
+use crate::core::model::track_content::TrackContentSnapshot;
 use crate::domain::open::service::OpenResponse;
 
 const DAEMON_PROBE_TIMEOUT_MS: u64 = 500;
@@ -270,6 +271,43 @@ impl ApiClient {
                 .json(&serde_json::json!({ "name": name, "start_index": start_index })),
         )
         .await
+    }
+
+    /// 轻量提交指定歌单的播放命令。
+    ///
+    /// # 参数
+    /// - `name`：歌单名
+    /// - `start_index`：起播索引
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::api::playlist::PlaylistPlayCommandResponse>`：轻量命令响应
+    pub async fn playlist_play_command(
+        &self,
+        name: &str,
+        start_index: usize,
+    ) -> MeloResult<crate::api::playlist::PlaylistPlayCommandResponse> {
+        let url = format!("{}/api/playlists/play-command", self.base_url);
+        self.send_and_decode(
+            self.client
+                .post(url)
+                .json(&serde_json::json!({ "name": name, "start_index": start_index })),
+        )
+        .await
+    }
+
+    /// 读取指定歌曲的低频内容快照。
+    ///
+    /// # 参数
+    /// - `song_id`：歌曲 ID
+    ///
+    /// # 返回值
+    /// - `MeloResult<TrackContentSnapshot>`：曲目内容快照
+    pub async fn track_content(&self, song_id: i64) -> MeloResult<TrackContentSnapshot> {
+        let mut url = reqwest::Url::parse(&format!("{}/api/tracks/content", self.base_url))
+            .map_err(|err| MeloError::Message(err.to_string()))?;
+        url.query_pairs_mut()
+            .append_pair("song_id", &song_id.to_string());
+        self.send_and_decode(self.client.get(url)).await
     }
 
     /// 发送一个无请求体的 POST 命令。

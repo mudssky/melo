@@ -5,6 +5,7 @@ pub mod event;
 pub mod keymap;
 pub mod lyrics;
 pub mod mouse;
+pub mod playback_clock;
 pub mod run;
 pub mod theme;
 pub mod ui;

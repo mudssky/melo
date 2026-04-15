@@ -6,6 +6,18 @@
 /// # 返回值
 /// - `Vec<String>`：详情区文本行
 pub fn render_detail_lines(app: &crate::tui::app::App) -> Vec<String> {
+    render_detail_lines_at(app, std::time::Instant::now())
+}
+
+/// 在指定时刻生成右侧详情区要展示的文本行。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+/// - `now`：当前本地单调时钟时间
+///
+/// # 返回值
+/// - `Vec<String>`：详情区文本行
+pub fn render_detail_lines_at(app: &crate::tui::app::App, now: std::time::Instant) -> Vec<String> {
     let mut lines = Vec::new();
 
     if let Some(song) = app.player.current_song.as_ref() {
@@ -28,7 +40,7 @@ pub fn render_detail_lines(app: &crate::tui::app::App) -> Vec<String> {
             .scroll_top
             .min(content.lyrics.len().saturating_sub(visible_height));
         let end = (start + visible_height).min(content.lyrics.len());
-        let current_index = app.current_lyric_index();
+        let current_index = app.current_lyric_index_at(now);
 
         lines.extend(
             content.lyrics[start..end]
@@ -51,11 +63,14 @@ pub fn render_detail_lines(app: &crate::tui::app::App) -> Vec<String> {
     }
 
     lines.push(String::new());
-    lines.push(
-        app.current_track_cover_summary
-            .clone()
-            .unwrap_or_else(|| "No cover available".to_string()),
-    );
+    let cover_summary = app
+        .current_track_song_id
+        .and_then(|song_id| app.track_content_cache.get(&song_id))
+        .and_then(|content| content.artwork.as_ref())
+        .map(|artwork| artwork.terminal_summary.clone())
+        .or_else(|| app.current_track_cover_summary.clone())
+        .unwrap_or_else(|| "No cover available".to_string());
+    lines.push(cover_summary);
 
     lines
 }

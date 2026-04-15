@@ -501,6 +501,45 @@ impl AppState {
         })
     }
 
+    /// 轻量提交一个歌单播放命令，并返回确认目标所需的最小信息。
+    ///
+    /// # 参数
+    /// - `name`：歌单名
+    /// - `start_index`：起播索引
+    ///
+    /// # 返回值
+    /// - `MeloResult<crate::api::playlist::PlaylistPlayCommandResponse>`：轻量播放命令结果
+    pub async fn submit_playlist_play_command(
+        &self,
+        name: &str,
+        start_index: usize,
+    ) -> MeloResult<crate::api::playlist::PlaylistPlayCommandResponse> {
+        let preview = self.playlists.preview(name).await?;
+        let target = preview.get(start_index).ok_or_else(|| {
+            crate::core::error::MeloError::Message("queue index out of range".to_string())
+        })?;
+        let items = self.playlists.queue_items(name).await?;
+        let source_kind = self
+            .playlists
+            .list_all()
+            .await?
+            .into_iter()
+            .find(|playlist| playlist.name == name)
+            .map(|playlist| playlist.kind)
+            .unwrap_or_else(|| "static".to_string());
+
+        let snapshot = self.player.replace_queue(items, start_index).await?;
+        self.set_current_playlist_context(name, &source_kind);
+
+        Ok(crate::api::playlist::PlaylistPlayCommandResponse {
+            source_name: name.to_string(),
+            source_kind,
+            target_song_id: target.id,
+            target_index: start_index,
+            accepted_generation: snapshot.version,
+        })
+    }
+
     /// 返回兼容旧版 TUI 的聚合快照。
     ///
     /// # 参数

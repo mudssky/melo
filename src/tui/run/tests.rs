@@ -111,6 +111,21 @@ fn hit_test_mouse_target_maps_sidebar_row_to_playlist_item() {
 }
 
 #[test]
+fn hit_test_mouse_target_maps_detail_area_to_lyric_panel() {
+    let app = crate::tui::app::App::new_for_test();
+    let layout = crate::tui::ui::layout::split(ratatui::layout::Rect::new(0, 0, 100, 30), false);
+
+    let target = super::hit_test_mouse_target(
+        layout,
+        &app,
+        layout.content_detail.x + 1,
+        layout.content_detail.y + 1,
+    );
+
+    assert_eq!(target, crate::tui::mouse::MouseTarget::DetailPanel);
+}
+
+#[test]
 fn status_lines_include_launch_cwd_context() {
     let mut app = crate::tui::app::App::new_for_test();
     app.set_launch_cwd("D:/Music/Aimer");
@@ -155,4 +170,63 @@ async fn runtime_delta_clears_pending_action_and_refreshes_local_playback_state(
 
     assert!(app.pending_runtime_action().is_none());
     assert_eq!(app.current_track_song_id, Some(8));
+}
+
+#[tokio::test]
+async fn playlist_play_command_sets_pending_target_without_immediately_switching_current_song() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.apply_snapshot(crate::core::model::player::PlayerSnapshot {
+        current_song: Some(crate::core::model::player::NowPlayingSong {
+            song_id: 1,
+            title: "Old".into(),
+            duration_seconds: Some(100.0),
+        }),
+        ..crate::core::model::player::PlayerSnapshot::default()
+    });
+
+    app.mark_pending_playlist_play("Favorites".to_string(), 9, 3);
+    assert_eq!(app.current_track_song_id, Some(1));
+    assert!(app.pending_playlist_play().is_some());
+}
+
+#[tokio::test]
+async fn runtime_confirmation_clears_pending_playlist_play_only_after_target_song_arrives() {
+    let mut app = crate::tui::app::App::new_for_test();
+    app.mark_pending_playlist_play("Favorites".to_string(), 9, 3);
+
+    crate::tui::run::apply_runtime_delta_for_test(
+        &mut app,
+        crate::core::model::playback_runtime::PlaybackRuntimeSnapshot {
+            generation: 2,
+            playback_state: "playing".into(),
+            current_source_ref: Some("Favorites".into()),
+            current_song_id: Some(8),
+            current_index: Some(2),
+            position_seconds: Some(0.0),
+            duration_seconds: Some(180.0),
+            playback_mode: crate::core::model::playback_mode::PlaybackMode::Ordered,
+            volume_percent: 100,
+            muted: false,
+            last_error_code: None,
+        },
+    );
+    assert!(app.pending_playlist_play().is_some());
+
+    crate::tui::run::apply_runtime_delta_for_test(
+        &mut app,
+        crate::core::model::playback_runtime::PlaybackRuntimeSnapshot {
+            generation: 3,
+            playback_state: "playing".into(),
+            current_source_ref: Some("Favorites".into()),
+            current_song_id: Some(9),
+            current_index: Some(3),
+            position_seconds: Some(0.0),
+            duration_seconds: Some(180.0),
+            playback_mode: crate::core::model::playback_mode::PlaybackMode::Ordered,
+            volume_percent: 100,
+            muted: false,
+            last_error_code: None,
+        },
+    );
+    assert!(app.pending_playlist_play().is_none());
 }

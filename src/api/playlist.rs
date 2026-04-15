@@ -43,6 +43,21 @@ pub struct PlaylistPreviewResponse {
     pub songs: Vec<PlaylistPreviewSong>,
 }
 
+/// 轻量歌单播放命令响应。
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PlaylistPlayCommandResponse {
+    /// 提交的来源名。
+    pub source_name: String,
+    /// 提交的来源类型。
+    pub source_kind: String,
+    /// 目标歌曲 ID。
+    pub target_song_id: i64,
+    /// 目标来源内索引。
+    pub target_index: usize,
+    /// daemon 接收命令后的最新代次。
+    pub accepted_generation: u64,
+}
+
 /// 预览歌单内容。
 ///
 /// # 参数
@@ -114,6 +129,32 @@ pub async fn play(
 
     state
         .tui_snapshot()
+        .await
+        .map(ApiResponse::ok)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+/// 轻量提交歌单播放命令，不返回整页 TUI 聚合快照。
+///
+/// # 参数
+/// - `state`：应用状态
+/// - `request`：播放请求
+///
+/// # 返回值
+/// - `Result<Json<ApiResponse<PlaylistPlayCommandResponse>>, ApiError>`：轻量播放命令结果
+#[utoipa::path(
+    post,
+    path = "/api/playlists/play-command",
+    request_body = PlaylistPlayRequest,
+    responses((status = 200, body = crate::api::response::ApiResponse<PlaylistPlayCommandResponse>))
+)]
+pub async fn play_command(
+    State(state): State<AppState>,
+    Json(request): Json<PlaylistPlayRequest>,
+) -> Result<Json<ApiResponse<PlaylistPlayCommandResponse>>, ApiError> {
+    state
+        .submit_playlist_play_command(&request.name, request.start_index)
         .await
         .map(ApiResponse::ok)
         .map(Json)

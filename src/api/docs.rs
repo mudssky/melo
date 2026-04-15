@@ -27,6 +27,7 @@ use utoipa::OpenApi;
         crate::api::open::open,
         crate::api::playlist::preview,
         crate::api::playlist::play,
+        crate::api::playlist::play_command,
         crate::api::tui::home,
         crate::api::ws::player_updates,
         crate::api::ws::tui_updates
@@ -46,8 +47,10 @@ use utoipa::OpenApi;
             crate::api::player::PlayerModeRequest,
             crate::api::playlist::PlaylistPreviewQuery,
             crate::api::playlist::PlaylistPlayRequest,
+            crate::api::playlist::PlaylistPlayCommandResponse,
             crate::api::playlist::PlaylistPreviewSong,
             crate::api::playlist::PlaylistPreviewResponse,
+            crate::api::response::ApiResponse<crate::api::playlist::PlaylistPlayCommandResponse>,
             crate::api::queue::QueueAddRequest,
             crate::api::queue::QueueIndexRequest,
             crate::api::queue::QueueInsertRequest,

@@ -83,4 +83,61 @@ async fn scan_prefers_sidecar_lyrics_and_cover_over_embedded_metadata() {
         .unwrap();
     assert_eq!(artwork.source_kind, "sidecar");
     assert!(artwork.source_path.unwrap().ends_with("cover.jpg"));
+
+    let track_content = service.track_content(songs[0].id).await.unwrap();
+    assert_eq!(
+        track_content
+            .artwork
+            .as_ref()
+            .map(|artwork| artwork.source_kind.as_str()),
+        Some("sidecar")
+    );
+    assert!(
+        track_content
+            .artwork
+            .as_ref()
+            .and_then(|artwork| artwork.source_path.as_deref())
+            .is_some_and(|path| path.ends_with("cover.jpg"))
+    );
+    assert!(
+        track_content
+            .artwork
+            .as_ref()
+            .is_some_and(|artwork| artwork.terminal_summary.contains("cover.jpg"))
+    );
+}
+
+#[tokio::test]
+async fn track_content_reports_embedded_artwork_without_sidecar_cover() {
+    let temp = tempdir().unwrap();
+    let db_path = temp.path().join("melo.db");
+    let music_dir = temp.path().join("music");
+    std::fs::create_dir_all(&music_dir).unwrap();
+
+    let song_path = music_dir.join("blue-bird.mp3");
+    prepare_tagged_fixture(&song_path).unwrap();
+
+    let settings = Settings::for_test(db_path);
+    DatabaseBootstrap::new(&settings).init().await.unwrap();
+
+    let service = LibraryService::new(settings, Arc::new(LoftyMetadataReader));
+    service.scan_paths(&[music_dir]).await.unwrap();
+
+    let songs = service.list_songs().await.unwrap();
+    let track_content = service.track_content(songs[0].id).await.unwrap();
+
+    assert_eq!(
+        track_content
+            .artwork
+            .as_ref()
+            .map(|artwork| artwork.source_kind.as_str()),
+        Some("embedded")
+    );
+    assert_eq!(
+        track_content
+            .artwork
+            .as_ref()
+            .map(|artwork| artwork.terminal_summary.as_str()),
+        Some("封面来自音频元数据")
+    );
 }

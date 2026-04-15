@@ -872,3 +872,104 @@ async fn runtime_snapshot_does_not_recompute_lyrics_or_playlist_browser() {
     assert_eq!(before.current_source_ref, after.current_source_ref);
     assert!(after.current_song_id.is_some());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn playlist_play_command_returns_lightweight_ack_without_tui_snapshot() {
+    let harness = melo::test_support::TestHarness::new().await;
+    let playlist_service = harness.playlist_service();
+    harness.seed_song("One", "Aimer", "Singles", 2015).await;
+    harness.seed_song("Two", "Aimer", "Singles", 2015).await;
+    let one_path = harness.write_song_file("audio/one.flac").await;
+    let two_path = harness.write_song_file("audio/two.flac").await;
+    let conn = rusqlite::Connection::open(harness.settings.database.path.as_std_path()).unwrap();
+    conn.execute(
+        "UPDATE songs SET path = ?1 WHERE id = 1",
+        [one_path.to_string_lossy().to_string()],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE songs SET path = ?1 WHERE id = 2",
+        [two_path.to_string_lossy().to_string()],
+    )
+    .unwrap();
+    playlist_service
+        .create_static("Favorites", None)
+        .await
+        .unwrap();
+    playlist_service
+        .add_songs("Favorites", &[1, 2])
+        .await
+        .unwrap();
+
+    let app = melo::daemon::app::test_router_with_settings(harness.settings.clone()).await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/playlists/play-command")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"name":"Favorites","start_index":1}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["code"], 0);
+    assert_eq!(payload["data"]["target_song_id"], 2);
+    assert!(payload["data"]["player"].is_null());
+    assert!(payload["data"]["playlist_browser"].is_null());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn runtime_ws_confirms_playlist_play_command_after_submission() {
+    let harness = melo::test_support::TestHarness::new().await;
+    let playlist_service = harness.playlist_service();
+    harness.seed_song("One", "Aimer", "Singles", 2015).await;
+    harness.seed_song("Two", "Aimer", "Singles", 2015).await;
+    let one_path = harness.write_song_file("audio/one.flac").await;
+    let two_path = harness.write_song_file("audio/two.flac").await;
+    let conn = rusqlite::Connection::open(harness.settings.database.path.as_std_path()).unwrap();
+    conn.execute(
+        "UPDATE songs SET path = ?1 WHERE id = 1",
+        [one_path.to_string_lossy().to_string()],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE songs SET path = ?1 WHERE id = 2",
+        [two_path.to_string_lossy().to_string()],
+    )
+    .unwrap();
+    playlist_service
+        .create_static("Favorites", None)
+        .await
+        .unwrap();
+    playlist_service
+        .add_songs("Favorites", &[1, 2])
+        .await
+        .unwrap();
+
+    let state = melo::daemon::app::AppState::for_test_with_settings(harness.settings.clone()).await;
+    let app = melo::daemon::server::router(state);
+    let server = spawn_test_server(app).await;
+    let ws_url = server.base_url.replace("http://", "ws://") + "/api/ws/playback/runtime";
+    let (_socket, mut stream) = connect_test_ws(&ws_url).await;
+    let _initial: serde_json::Value = next_ws_json(&mut stream).await;
+
+    let response = reqwest::Client::new()
+        .post(format!("{}/api/playlists/play-command", server.base_url))
+        .json(&serde_json::json!({ "name": "Favorites", "start_index": 1 }))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+
+    let confirmed = next_ws_json(&mut stream).await;
+    assert_eq!(response["data"]["target_song_id"], 2);
+    assert_eq!(confirmed["current_song_id"], 2);
+    assert_eq!(confirmed["playback_state"], "playing");
+}

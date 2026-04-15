@@ -137,7 +137,15 @@ fn apply_runtime_delta(
     runtime: crate::core::model::playback_runtime::PlaybackRuntimeSnapshot,
 ) {
     app.clear_pending_runtime_action();
+    let playlist_confirmed = app.pending_playlist_play().is_some_and(|pending| {
+        runtime.current_song_id == Some(pending.target_song_id)
+            && runtime.current_index == Some(pending.target_index)
+            && runtime.playback_state == "playing"
+    });
     app.apply_runtime_snapshot(runtime);
+    if playlist_confirmed {
+        app.clear_pending_playlist_play();
+    }
 }
 
 /// 对测试暴露的运行时快照应用助手。
@@ -195,30 +203,130 @@ async fn stop_playback_before_exit(
 fn current_track_cover_summary(
     current_track: &crate::core::model::tui::CurrentTrackSnapshot,
 ) -> String {
-    crate::tui::cover::cover_fallback_summary(
-        crate::tui::cover::detect_cover_protocol_from_env(&std::env::vars().collect::<Vec<_>>()),
-        current_track
-            .artwork
-            .as_ref()
-            .and_then(|artwork| artwork.source_path.as_deref()),
-    )
+    match current_track.artwork.as_ref() {
+        Some(artwork) if artwork.source_kind == "sidecar" => format!(
+            "封面来源：sidecar{}",
+            artwork
+                .source_path
+                .as_ref()
+                .map(|path| format!(" · {path}"))
+                .unwrap_or_default()
+        ),
+        Some(artwork) if artwork.source_kind == "embedded" => "封面来自音频元数据".to_string(),
+        Some(artwork) => format!("封面来源：{}", artwork.source_kind),
+        None => "无封面".to_string(),
+    }
 }
 
-/// 将聚合快照写入本地 App 状态，并同步补齐封面摘要。
+/// 仅将低频首页快照里的浏览态与 fallback 内容写入本地状态。
 ///
 /// # 参数
 /// - `app`：当前 TUI 状态
-/// - `snapshot`：新的 TUI 聚合快照
+/// - `snapshot`：最新首页聚合快照
 ///
 /// # 返回值
 /// - 无
-fn apply_tui_snapshot(
+fn apply_home_snapshot(
     app: &mut crate::tui::app::App,
     snapshot: crate::core::model::tui::TuiSnapshot,
 ) {
     let cover_summary = current_track_cover_summary(&snapshot.current_track);
-    app.apply_tui_snapshot(snapshot);
+    app.active_task = snapshot.active_task;
+    app.apply_playlist_browser_snapshot(snapshot.playlist_browser);
+    app.current_track_lyrics = snapshot.current_track.lyrics;
     app.current_track_cover_summary = Some(cover_summary);
+
+    let selected_still_exists = app.selected_playlist_name.as_ref().is_some_and(|selected| {
+        app.playlist_browser
+            .visible_playlists
+            .iter()
+            .any(|playlist| &playlist.name == selected)
+    });
+
+    if !selected_still_exists {
+        app.selected_playlist_name = app
+            .playlist_browser
+            .default_selected_playlist
+            .clone()
+            .or_else(|| {
+                app.playlist_browser
+                    .visible_playlists
+                    .first()
+                    .map(|playlist| playlist.name.clone())
+            });
+    }
+
+    app.playlist_state.select(
+        app.playlist_browser
+            .visible_playlists
+            .iter()
+            .position(|playlist| Some(playlist.name.as_str()) == app.selected_playlist_name()),
+    );
+}
+
+/// 按当前选中来源重新加载完整预览。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+/// - `api_client`：daemon API 客户端
+///
+/// # 返回值
+/// - `MeloResult<()>`：加载结果
+async fn load_preview_for_selected(
+    app: &mut crate::tui::app::App,
+    api_client: &crate::cli::client::ApiClient,
+) -> MeloResult<()> {
+    let Some(selected) = app.selected_playlist_name().map(ToString::to_string) else {
+        return Ok(());
+    };
+
+    app.set_playlist_preview_loading();
+    match api_client.playlist_preview(&selected).await {
+        Ok(preview) => app.set_playlist_preview(&preview),
+        Err(err) => app.set_playlist_preview_error(err.to_string()),
+    }
+
+    Ok(())
+}
+
+/// 在当前歌曲发生变化或缓存缺失时拉取低频内容。
+///
+/// # 参数
+/// - `app`：当前 TUI 状态
+/// - `api_client`：daemon API 客户端
+///
+/// # 返回值
+/// - `MeloResult<()>`：刷新结果
+async fn refresh_track_content_for_current_song(
+    app: &mut crate::tui::app::App,
+    api_client: &crate::cli::client::ApiClient,
+) -> MeloResult<()> {
+    let Some(song_id) = app.current_track_song_id else {
+        return Ok(());
+    };
+
+    if let Some(content) = app.track_content_cache.get(&song_id) {
+        app.current_track_cover_summary = content
+            .artwork
+            .as_ref()
+            .map(|artwork| artwork.terminal_summary.clone());
+        return Ok(());
+    }
+
+    match api_client.track_content(song_id).await {
+        Ok(content) => {
+            app.current_track_cover_summary = content
+                .artwork
+                .as_ref()
+                .map(|artwork| artwork.terminal_summary.clone());
+            app.cache_track_content(content);
+        }
+        Err(err) => {
+            app.current_track_cover_summary = Some(format!("封面信息不可用: {err}"));
+        }
+    }
+
+    Ok(())
 }
 
 /// 启动真实的 TUI 运行循环。
@@ -291,14 +399,10 @@ async fn run_loop(
     let bootstrap = client.bootstrap(&api_client).await?;
     app.apply_runtime_snapshot(bootstrap.runtime);
     let home = api_client.tui_home().await?;
-    apply_tui_snapshot(&mut app, home);
-    if let Some(selected) = app.selected_playlist_name().map(ToString::to_string) {
-        app.set_playlist_preview_loading();
-        match api_client.playlist_preview(&selected).await {
-            Ok(preview) => app.set_playlist_preview(&preview),
-            Err(err) => app.set_playlist_preview_error(err.to_string()),
-        }
-    }
+    app.apply_snapshot(home.player.clone());
+    apply_home_snapshot(&mut app, home);
+    load_preview_for_selected(&mut app, &api_client).await?;
+    refresh_track_content_for_current_song(&mut app, &api_client).await?;
     app.footer_hints_enabled = context.footer_hints_enabled;
     app.startup_notice = context.startup_notice;
     if let Some(launch_cwd) = context.launch_cwd {
@@ -308,21 +412,24 @@ async fn run_loop(
         app.set_source_label(source_label);
     }
 
-    let mut stream = client.connect().await?;
     let mut runtime_stream = client.runtime_connect().await?;
-    let (snapshot_tx, mut snapshot_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (home_tx, mut home_rx) = tokio::sync::mpsc::unbounded_channel();
     let (runtime_tx, mut runtime_rx) = tokio::sync::mpsc::unbounded_channel();
     let (command_tx, mut command_rx) = tokio::sync::mpsc::unbounded_channel::<RuntimeCommand>();
     let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel::<
         MeloResult<crate::core::model::player::PlayerSnapshot>,
     >();
-    tokio::spawn(async move {
-        while let Ok(snapshot) = stream
-            .next_json::<crate::core::model::tui::TuiSnapshot>()
-            .await
-        {
-            if snapshot_tx.send(snapshot).is_err() {
-                break;
+    tokio::spawn({
+        let api_client = api_client.clone();
+        let client = client.clone();
+        async move {
+            loop {
+                if let Ok(snapshot) = client.refresh_home(&api_client).await
+                    && home_tx.send(snapshot).is_err()
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(750)).await;
             }
         }
     });
@@ -349,11 +456,19 @@ async fn run_loop(
     });
 
     loop {
-        while let Ok(snapshot) = snapshot_rx.try_recv() {
-            apply_tui_snapshot(&mut app, snapshot);
+        app.tick_lyrics(std::time::Instant::now());
+        while let Ok(snapshot) = home_rx.try_recv() {
+            apply_home_snapshot(&mut app, snapshot);
+            if app.preview_reload_needed() && !app.preview_loading {
+                load_preview_for_selected(&mut app, &api_client).await?;
+            }
         }
         while let Ok(runtime) = runtime_rx.try_recv() {
+            let previous_song_id = app.current_track_song_id;
             apply_runtime_delta(&mut app, runtime);
+            if previous_song_id != app.current_track_song_id {
+                refresh_track_content_for_current_song(&mut app, &api_client).await?;
+            }
         }
         while let Ok(result) = result_rx.try_recv() {
             app.clear_pending_runtime_action();
@@ -424,7 +539,10 @@ async fn run_loop(
                 frame.render_widget(
                     Paragraph::new(format!(
                         "{} | {}",
-                        crate::tui::ui::playbar::playback_label(&app.player),
+                        crate::tui::ui::playbar::playback_label_at(
+                            &app,
+                            std::time::Instant::now(),
+                        ),
                         app.footer_status()
                     ))
                     .block(Block::default().borders(Borders::ALL).title("Status")),
@@ -470,6 +588,10 @@ async fn run_loop(
                         MouseEventKind::Down(_) => {
                             let target =
                                 hit_test_mouse_target(layout, &app, mouse.column, mouse.row);
+                            if target == crate::tui::mouse::MouseTarget::DetailPanel {
+                                app.resume_lyric_follow(std::time::Instant::now());
+                                continue;
+                            }
                             if target == crate::tui::mouse::MouseTarget::None {
                                 continue;
                             }
@@ -498,6 +620,10 @@ async fn run_loop(
                                 crate::tui::mouse::MouseTarget::PlaylistRow(_) => {
                                     crate::tui::event::Intent::ScrollPlaylist(-1)
                                 }
+                                crate::tui::mouse::MouseTarget::DetailPanel => {
+                                    app.scroll_lyrics(-1, std::time::Instant::now());
+                                    continue;
+                                }
                                 crate::tui::mouse::MouseTarget::None => match app.focus {
                                     crate::tui::app::FocusArea::PlaylistPreview => {
                                         crate::tui::event::Intent::ScrollPreview(-1)
@@ -518,6 +644,10 @@ async fn run_loop(
                                 }
                                 crate::tui::mouse::MouseTarget::PlaylistRow(_) => {
                                     crate::tui::event::Intent::ScrollPlaylist(1)
+                                }
+                                crate::tui::mouse::MouseTarget::DetailPanel => {
+                                    app.scroll_lyrics(1, std::time::Instant::now());
+                                    continue;
                                 }
                                 crate::tui::mouse::MouseTarget::None => match app.focus {
                                     crate::tui::app::FocusArea::PlaylistPreview => {
@@ -803,18 +933,26 @@ async fn dispatch_intent(
             }
             crate::tui::event::Intent::Action(crate::tui::event::ActionId::PlaySelection) => {
                 if let Some(name) = app.selected_playlist_name().map(ToString::to_string) {
-                    let snapshot = api_client.playlist_play(&name, 0).await?;
-                    apply_tui_snapshot(app, snapshot);
+                    let ack = api_client.playlist_play_command(&name, 0).await?;
+                    app.mark_pending_playlist_play(
+                        ack.source_name,
+                        ack.target_song_id,
+                        ack.target_index,
+                    );
                 }
             }
             crate::tui::event::Intent::Action(
                 crate::tui::event::ActionId::PlayPreviewSelection,
             ) => {
                 if let Some(name) = app.selected_playlist_name().map(ToString::to_string) {
-                    let snapshot = api_client
-                        .playlist_play(&name, app.selected_preview_index())
+                    let ack = api_client
+                        .playlist_play_command(&name, app.selected_preview_index())
                         .await?;
-                    apply_tui_snapshot(app, snapshot);
+                    app.mark_pending_playlist_play(
+                        ack.source_name,
+                        ack.target_song_id,
+                        ack.target_index,
+                    );
                 }
             }
             crate::tui::event::Intent::Action(crate::tui::event::ActionId::TogglePlayback) => {
@@ -895,6 +1033,10 @@ fn hit_test_mouse_target(
         return crate::tui::mouse::MouseTarget::PreviewRow(index);
     }
 
+    if rect_contains(layout.content_detail, column, row) {
+        return crate::tui::mouse::MouseTarget::DetailPanel;
+    }
+
     crate::tui::mouse::MouseTarget::None
 }
 
@@ -920,6 +1062,9 @@ async fn apply_mouse_selection(
         }
         crate::tui::mouse::MouseTarget::PreviewRow(index) => {
             app.select_preview_index(index);
+        }
+        crate::tui::mouse::MouseTarget::DetailPanel => {
+            app.resume_lyric_follow(std::time::Instant::now());
         }
         crate::tui::mouse::MouseTarget::None => {}
     }

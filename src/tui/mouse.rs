@@ -7,6 +7,7 @@ const DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(350);
 pub enum MouseTarget {
     PlaylistRow(usize),
     PreviewRow(usize),
+    DetailPanel,
     None,
 }
 

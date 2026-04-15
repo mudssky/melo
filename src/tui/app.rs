@@ -29,6 +29,16 @@ pub struct PreviewSongRow {
     pub title: String,
 }
 
+/// 等待 runtime 确认的歌单切歌请求。
+pub struct PendingPlaylistPlay {
+    /// 目标来源名。
+    pub source_name: String,
+    /// 目标歌曲 ID。
+    pub target_song_id: i64,
+    /// 目标来源内索引。
+    pub target_index: usize,
+}
+
 /// TUI 应用状态。
 pub struct App {
     /// 当前播放器快照。
@@ -61,6 +71,8 @@ pub struct App {
     pub lyric_viewport: crate::tui::viewports::ViewportState,
     /// 歌词自动跟随状态。
     pub lyric_follow_state: crate::tui::lyrics::LyricFollowState,
+    /// 本地播放时间锚点。
+    pub playback_clock: crate::tui::playback_clock::PlaybackClock,
     /// 左侧歌单列表的状态。
     pub playlist_state: ListState,
     /// 右侧预览列表的状态。
@@ -91,6 +103,10 @@ pub struct App {
     pub track_content_cache: BTreeMap<i64, crate::core::model::track_content::TrackContentSnapshot>,
     /// 当前等待远端确认的运行时动作。
     pending_runtime_action: Option<crate::tui::event::ActionId>,
+    /// 当前等待 runtime 确认的歌单切歌请求。
+    pending_playlist_play: Option<PendingPlaylistPlay>,
+    /// 当前是否需要根据最新 count 重拉预览。
+    preview_reload_needed: bool,
 }
 
 impl App {
@@ -130,6 +146,7 @@ impl App {
             track_viewport: crate::tui::viewports::ViewportState::new(1),
             lyric_viewport: crate::tui::viewports::ViewportState::new(1),
             lyric_follow_state: crate::tui::lyrics::LyricFollowState::new(Duration::from_secs(3)),
+            playback_clock: crate::tui::playback_clock::PlaybackClock::default(),
             playlist_state: ListState::default(),
             preview_state: ListState::default(),
             selected_playlist_name: None,
@@ -145,6 +162,8 @@ impl App {
             current_track_cover_summary: None,
             track_content_cache: BTreeMap::new(),
             pending_runtime_action: None,
+            pending_playlist_play: None,
+            preview_reload_needed: false,
         }
     }
 
@@ -341,6 +360,8 @@ impl App {
         self.runtime.volume_percent = snapshot.volume_percent;
         self.runtime.muted = snapshot.muted;
         self.runtime.last_error_code = snapshot.last_error.as_ref().map(|error| error.code.clone());
+        self.playback_clock
+            .apply_runtime(&self.runtime, std::time::Instant::now());
         self.player = snapshot;
     }
 
@@ -369,8 +390,31 @@ impl App {
         &mut self,
         runtime: crate::core::model::playback_runtime::PlaybackRuntimeSnapshot,
     ) {
+        self.apply_runtime_snapshot_at(runtime, std::time::Instant::now());
+    }
+
+    /// 在指定时刻应用一份新的轻量播放运行时快照。
+    ///
+    /// # 参数
+    /// - `runtime`：新的轻量播放运行时快照
+    /// - `now`：当前本地单调时钟时间
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn apply_runtime_snapshot_at(
+        &mut self,
+        runtime: crate::core::model::playback_runtime::PlaybackRuntimeSnapshot,
+        now: std::time::Instant,
+    ) {
         self.current_track_song_id = runtime.current_song_id;
+        self.playback_clock.apply_runtime(&runtime, now);
         self.runtime = runtime;
+        if matches!(
+            self.lyric_follow_state.mode(),
+            crate::tui::lyrics::LyricFollowMode::FollowCurrent
+        ) {
+            self.follow_current_lyric(now);
+        }
     }
 
     /// 返回当前应高亮的歌词行索引。
@@ -381,10 +425,99 @@ impl App {
     /// # 返回值
     /// - `Option<usize>`：命中时返回歌词行索引
     pub fn current_lyric_index(&self) -> Option<usize> {
+        self.current_lyric_index_at(std::time::Instant::now())
+    }
+
+    /// 返回指定时刻应高亮的歌词行索引。
+    ///
+    /// # 参数
+    /// - `now`：当前本地单调时钟时间
+    ///
+    /// # 返回值
+    /// - `Option<usize>`：命中时返回歌词行索引
+    pub fn current_lyric_index_at(&self, now: std::time::Instant) -> Option<usize> {
         let song_id = self.current_track_song_id?;
         let content = self.track_content_cache.get(&song_id)?;
-        let position = self.runtime.position_seconds?;
+        let position = self.playback_clock.display_position(now)?;
         content.current_lyric_index(position)
+    }
+
+    /// 返回当前本地播放时钟。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `&crate::tui::playback_clock::PlaybackClock`：当前本地播放时钟
+    pub fn playback_clock(&self) -> &crate::tui::playback_clock::PlaybackClock {
+        &self.playback_clock
+    }
+
+    /// 按当前时间推进歌词跟随状态机，并在恢复后重新对齐当前句。
+    ///
+    /// # 参数
+    /// - `now`：当前本地单调时钟时间
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn tick_lyrics(&mut self, now: std::time::Instant) {
+        self.lyric_follow_state.tick(now);
+        if matches!(
+            self.lyric_follow_state.mode(),
+            crate::tui::lyrics::LyricFollowMode::ResumePending
+        ) && self.lyric_follow_state.should_resume(now)
+        {
+            self.lyric_follow_state.resume_now();
+        }
+
+        if matches!(
+            self.lyric_follow_state.mode(),
+            crate::tui::lyrics::LyricFollowMode::FollowCurrent
+        ) {
+            self.follow_current_lyric(now);
+        }
+    }
+
+    /// 手动滚动歌词视口并暂停自动跟随。
+    ///
+    /// # 参数
+    /// - `delta`：滚动偏移，负数向上，正数向下
+    /// - `now`：当前本地单调时钟时间
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn scroll_lyrics(&mut self, delta: isize, now: std::time::Instant) {
+        let Some(song_id) = self.current_track_song_id else {
+            return;
+        };
+        let Some(content) = self.track_content_cache.get(&song_id) else {
+            return;
+        };
+
+        self.lyric_follow_state.on_manual_scroll(now);
+        let max_scroll = content
+            .lyrics
+            .len()
+            .saturating_sub(self.lyric_viewport.visible_height.max(1));
+        self.lyric_viewport.scroll_top = if delta.is_negative() {
+            self.lyric_viewport
+                .scroll_top
+                .saturating_sub(delta.unsigned_abs())
+        } else {
+            (self.lyric_viewport.scroll_top + delta as usize).min(max_scroll)
+        };
+    }
+
+    /// 立即恢复歌词自动跟随并重新对齐当前句。
+    ///
+    /// # 参数
+    /// - `now`：当前本地单调时钟时间
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn resume_lyric_follow(&mut self, now: std::time::Instant) {
+        self.lyric_follow_state.resume_now();
+        self.follow_current_lyric(now);
     }
 
     /// 标记当前存在一个等待远端确认的运行时动作。
@@ -418,6 +551,50 @@ impl App {
     /// - `Option<crate::tui::event::ActionId>`：当前等待确认的动作
     pub fn pending_runtime_action(&self) -> Option<crate::tui::event::ActionId> {
         self.pending_runtime_action
+    }
+
+    /// 标记当前存在一个等待 runtime 确认的歌单切歌请求。
+    ///
+    /// # 参数
+    /// - `source_name`：目标来源名
+    /// - `target_song_id`：目标歌曲 ID
+    /// - `target_index`：目标来源内索引
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn mark_pending_playlist_play(
+        &mut self,
+        source_name: String,
+        target_song_id: i64,
+        target_index: usize,
+    ) {
+        self.pending_playlist_play = Some(PendingPlaylistPlay {
+            source_name,
+            target_song_id,
+            target_index,
+        });
+    }
+
+    /// 清除当前等待确认的歌单切歌请求。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn clear_pending_playlist_play(&mut self) {
+        self.pending_playlist_play = None;
+    }
+
+    /// 返回当前等待确认的歌单切歌请求。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `Option<&PendingPlaylistPlay>`：当前等待确认的歌单切歌请求
+    pub fn pending_playlist_play(&self) -> Option<&PendingPlaylistPlay> {
+        self.pending_playlist_play.as_ref()
     }
 
     /// 为测试填充一组带当前高亮行的歌词面板数据。
@@ -527,7 +704,7 @@ impl App {
         self.current_track_cover_summary = None;
         self.apply_snapshot(player);
         self.active_task = active_task;
-        self.playlist_browser = playlist_browser;
+        self.apply_playlist_browser_snapshot(playlist_browser);
         self.active_view = ActiveView::Playlist;
 
         let selected_still_exists = self
@@ -559,6 +736,31 @@ impl App {
                 .iter()
                 .position(|playlist| Some(playlist.name.as_str()) == self.selected_playlist_name()),
         );
+    }
+
+    /// 仅用新的歌单浏览快照刷新低频浏览态。
+    ///
+    /// # 参数
+    /// - `playlist_browser`：新的歌单浏览快照
+    ///
+    /// # 返回值
+    /// - 无
+    pub fn apply_playlist_browser_snapshot(
+        &mut self,
+        playlist_browser: crate::core::model::tui::PlaylistBrowserSnapshot,
+    ) {
+        self.preview_reload_needed = self
+            .preview_name
+            .as_ref()
+            .and_then(|preview_name| {
+                playlist_browser
+                    .visible_playlists
+                    .iter()
+                    .find(|playlist| &playlist.name == preview_name)
+                    .map(|playlist| playlist.count != self.preview_songs.len())
+            })
+            .unwrap_or(false);
+        self.playlist_browser = playlist_browser;
     }
 
     /// 返回当前选中的歌单名。
@@ -628,6 +830,8 @@ impl App {
             self.focus = FocusArea::PlaylistPreview;
             self.selected_preview_index = index;
             self.preview_state.select(Some(index));
+            self.track_viewport
+                .follow_selection(index, self.preview_titles.len());
         }
     }
 
@@ -658,11 +862,14 @@ impl App {
             .collect();
         self.preview_loading = false;
         self.preview_error = None;
+        self.preview_reload_needed = false;
         if self.selected_preview_index >= self.preview_titles.len() {
             self.selected_preview_index = self.preview_titles.len().saturating_sub(1);
         }
         self.preview_state
             .select((!self.preview_titles.is_empty()).then_some(self.selected_preview_index));
+        self.track_viewport
+            .follow_selection(self.selected_preview_index, self.preview_titles.len());
     }
 
     /// 标记歌单预览正在加载。
@@ -675,6 +882,7 @@ impl App {
     pub fn set_playlist_preview_loading(&mut self) {
         self.preview_loading = true;
         self.preview_error = None;
+        self.preview_reload_needed = false;
         self.preview_state.select(None);
     }
 
@@ -688,6 +896,7 @@ impl App {
     pub fn set_playlist_preview_error(&mut self, message: impl Into<String>) {
         self.preview_loading = false;
         self.preview_error = Some(message.into());
+        self.preview_reload_needed = false;
         self.preview_songs.clear();
         self.preview_titles.clear();
         self.selected_preview_index = 0;
@@ -714,6 +923,17 @@ impl App {
     /// - 无
     pub fn set_source_label(&mut self, source_label: impl Into<String>) {
         self.source_label = Some(source_label.into());
+    }
+
+    /// 返回当前是否需要根据最新 count 重拉预览。
+    ///
+    /// # 参数
+    /// - 无
+    ///
+    /// # 返回值
+    /// - `bool`：是否需要重拉预览
+    pub fn preview_reload_needed(&self) -> bool {
+        self.preview_reload_needed
     }
 
     /// 根据当前快照生成底部状态栏文案。
@@ -856,6 +1076,28 @@ impl App {
         );
 
         Some(crate::tui::ui::content::render_song_title(&rendered, width))
+    }
+
+    /// 在跟随模式下让歌词视口对齐当前句。
+    ///
+    /// # 参数
+    /// - `now`：当前本地单调时钟时间
+    ///
+    /// # 返回值
+    /// - 无
+    fn follow_current_lyric(&mut self, now: std::time::Instant) {
+        let Some(song_id) = self.current_track_song_id else {
+            return;
+        };
+        let Some(content) = self.track_content_cache.get(&song_id) else {
+            return;
+        };
+        let Some(current_index) = self.current_lyric_index_at(now) else {
+            return;
+        };
+
+        self.lyric_viewport
+            .follow_selection(current_index, content.lyrics.len());
     }
 }
 

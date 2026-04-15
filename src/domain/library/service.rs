@@ -296,15 +296,37 @@ impl LibraryService {
         &self,
         record: TrackContentRecord,
     ) -> MeloResult<TrackContentSnapshot> {
-        let artwork = self
-            .repository
-            .artwork_for_song(record.song_id)
-            .await?
-            .map(|artwork| ArtworkSummary {
-                terminal_summary: format!("Cover: {}", artwork.source_kind),
-                source_kind: artwork.source_kind,
-                source_path: artwork.source_path,
-            });
+        let artwork = Some(
+            match self.repository.artwork_for_song(record.song_id).await? {
+                Some(artwork) if artwork.source_kind == "sidecar" => ArtworkSummary {
+                    terminal_summary: format!(
+                        "封面来源：sidecar{}",
+                        artwork
+                            .source_path
+                            .as_ref()
+                            .map(|path| format!(" · {path}"))
+                            .unwrap_or_default()
+                    ),
+                    source_kind: artwork.source_kind,
+                    source_path: artwork.source_path,
+                },
+                Some(artwork) if artwork.source_kind == "embedded" => ArtworkSummary {
+                    terminal_summary: "封面来自音频元数据".to_string(),
+                    source_kind: artwork.source_kind,
+                    source_path: None,
+                },
+                Some(artwork) => ArtworkSummary {
+                    terminal_summary: format!("封面来源：{}", artwork.source_kind),
+                    source_kind: artwork.source_kind,
+                    source_path: artwork.source_path,
+                },
+                None => ArtworkSummary {
+                    terminal_summary: "无封面".to_string(),
+                    source_kind: "none".to_string(),
+                    source_path: None,
+                },
+            },
+        );
         let refresh_token = format!(
             "song-{}-{}-{}-{}",
             record.song_id, record.file_mtime, record.updated_at, record.lyrics_source_kind

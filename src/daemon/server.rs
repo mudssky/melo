@@ -112,6 +112,10 @@ pub fn router(state: AppState) -> Router {
             "/api/playlists/play",
             axum::routing::post(crate::api::playlist::play),
         )
+        .route(
+            "/api/playlists/play-command",
+            axum::routing::post(crate::api::playlist::play_command),
+        )
         .route("/api/sources", axum::routing::get(crate::api::source::list))
         .route(
             "/api/sources/tracks",

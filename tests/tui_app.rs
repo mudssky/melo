@@ -404,3 +404,92 @@ fn playlist_rows_truncate_long_titles_but_keep_selected_row_visible() {
     assert!(rows.len() >= 6);
     assert!(rows.iter().any(|line| line.contains("…")));
 }
+
+#[test]
+fn applying_home_snapshot_with_grown_count_marks_preview_for_reload() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.selected_playlist_name = Some("Favorites".into());
+    app.preview_name = Some("Favorites".into());
+    app.preview_songs = vec![
+        melo::tui::app::PreviewSongRow {
+            song_id: 1,
+            title: "One".into(),
+        },
+        melo::tui::app::PreviewSongRow {
+            song_id: 2,
+            title: "Two".into(),
+        },
+    ];
+
+    app.apply_playlist_browser_snapshot(melo::core::model::tui::PlaylistBrowserSnapshot {
+        default_view: melo::core::model::tui::TuiViewKind::Playlist,
+        default_selected_playlist: Some("Favorites".into()),
+        current_playing_playlist: None,
+        visible_playlists: vec![melo::core::model::tui::PlaylistListItem {
+            name: "Favorites".into(),
+            kind: "static".into(),
+            count: 3,
+            is_current_playing_source: false,
+            is_ephemeral: false,
+        }],
+    });
+
+    assert!(app.preview_reload_needed());
+}
+
+#[test]
+fn detail_lines_prefer_track_content_cover_source_summary() {
+    let mut app = melo::tui::app::App::new_for_test();
+    app.current_track_song_id = Some(7);
+    app.current_track_cover_summary = Some("old fallback".into());
+    app.cache_track_content(melo::core::model::track_content::TrackContentSnapshot {
+        song_id: 7,
+        title: "Blue Bird".into(),
+        duration_seconds: Some(212.0),
+        artwork: Some(melo::core::model::track_content::ArtworkSummary {
+            source_kind: "embedded".into(),
+            source_path: None,
+            terminal_summary: "封面来自音频元数据".into(),
+        }),
+        lyrics: Vec::new(),
+        refresh_token: "7-v1".into(),
+    });
+
+    let lines = melo::tui::ui::details::render_detail_lines_at(&app, std::time::Instant::now());
+    assert!(lines.iter().any(|line| line.contains("音频元数据")));
+    assert!(!lines.iter().any(|line| line.contains("old fallback")));
+}
+
+#[test]
+fn playbar_uses_smoothed_runtime_position() {
+    let mut app = melo::tui::app::App::new_for_test();
+    let now = std::time::Instant::now();
+    app.apply_snapshot(melo::core::model::player::PlayerSnapshot {
+        current_song: Some(melo::core::model::player::NowPlayingSong {
+            song_id: 1,
+            title: "Blue Bird".into(),
+            duration_seconds: Some(212.0),
+        }),
+        ..melo::core::model::player::PlayerSnapshot::default()
+    });
+    app.apply_runtime_snapshot_at(
+        melo::core::model::playback_runtime::PlaybackRuntimeSnapshot {
+            generation: 4,
+            playback_state: "playing".into(),
+            current_source_ref: Some("Favorites".into()),
+            current_song_id: Some(1),
+            current_index: Some(0),
+            position_seconds: Some(72.0),
+            duration_seconds: Some(212.0),
+            playback_mode: melo::core::model::playback_mode::PlaybackMode::Ordered,
+            volume_percent: 100,
+            muted: false,
+            last_error_code: None,
+        },
+        now,
+    );
+
+    let label =
+        melo::tui::ui::playbar::playback_label_at(&app, now + std::time::Duration::from_secs(1));
+    assert!(label.contains("01:13"));
+}
