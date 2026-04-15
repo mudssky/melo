@@ -521,12 +521,16 @@ async fn run_daemon_server() -> MeloResult<()> {
     let state = crate::daemon::app::AppState::new().await?;
     let shutdown_state = state.clone();
     crate::daemon::registry::store_registration(&state.daemon_registration(listener_addr)).await?;
-    let serve_result = axum::serve(listener, crate::daemon::server::router(state))
-        .with_graceful_shutdown(async move {
-            shutdown_state.wait_for_shutdown().await;
-        })
-        .await
-        .map_err(|err| crate::core::error::MeloError::Message(err.to_string()));
+    let serve_result = axum::serve(
+        listener,
+        crate::daemon::server::router(state)
+            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        shutdown_state.wait_for_shutdown().await;
+    })
+    .await
+    .map_err(|err| crate::core::error::MeloError::Message(err.to_string()));
     let clear_result = crate::daemon::registry::clear_registration().await;
     serve_result?;
     clear_result?;

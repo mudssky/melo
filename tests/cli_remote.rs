@@ -650,6 +650,85 @@ async fn daemon_docs_print_outputs_local_docs_url() {
         .stdout(predicate::str::contains("/api/docs/"));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn daemon_run_serves_docs_to_loopback_clients_in_local_mode() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_file = temp.path().join("daemon.json");
+    let config_path = temp.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[database]
+path = "docs-access.db"
+
+[daemon]
+host = "127.0.0.1"
+base_port = 38641
+port_search_limit = 0
+docs = "local"
+"#,
+    )
+    .unwrap();
+
+    let daemon_log = temp.path().join("daemon-stderr.log");
+    let daemon_out = temp.path().join("daemon-stdout.log");
+    let mut daemon = std::process::Command::new(assert_cmd::cargo::cargo_bin("melo"))
+        .env("MELO_CONFIG_PATH", &config_path)
+        .env("MELO_DAEMON_STATE_FILE", &state_file)
+        .arg("daemon")
+        .arg("run")
+        .stdout(std::fs::File::create(&daemon_out).map(Stdio::from).unwrap())
+        .stderr(std::fs::File::create(&daemon_log).map(Stdio::from).unwrap())
+        .spawn()
+        .unwrap();
+
+    let mut base_url = None;
+    for _ in 0..40 {
+        if let Ok(json) = std::fs::read_to_string(&state_file)
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(&json)
+            && let Some(url) = value.get("base_url").and_then(|item| item.as_str())
+        {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_millis(500))
+                .build()
+                .unwrap();
+            if client
+                .get(format!("{url}/api/system/health"))
+                .send()
+                .await
+                .ok()
+                .is_some_and(|response| response.status().is_success())
+            {
+                base_url = Some(url.to_string());
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    }
+
+    let base_url = base_url.expect("daemon should become healthy before docs request");
+    let docs_response = reqwest::Client::new()
+        .get(format!("{base_url}/api/docs/"))
+        .send()
+        .await;
+
+    let _ = reqwest::Client::new()
+        .post(format!("{base_url}/api/system/shutdown"))
+        .send()
+        .await;
+    let _ = daemon.kill();
+    let _ = daemon.wait();
+
+    assert!(
+        docs_response
+            .as_ref()
+            .ok()
+            .is_some_and(|response| response.status() == reqwest::StatusCode::OK),
+        "docs should be reachable from loopback client, stderr: {}",
+        std::fs::read_to_string(&daemon_log).unwrap_or_default()
+    );
+}
+
 #[tokio::test]
 async fn daemon_doctor_and_ps_commands_report_stale_registration() {
     let temp = tempfile::tempdir().unwrap();
